@@ -51,7 +51,7 @@ if ticker_selecionado:
     demonstrativos_filtrados = df_demonstrativos[df_demonstrativos["Ticker"] == ticker_selecionado].sort_values(by="Ano", ascending=False)
     
     st.header(f"{info_empresa['Nome_Empresa']} ({info_empresa['Ticker_Acao']})")
-    st.caption(f"Setor: {info_empresa['Setor']} | País: {info_empresa['País']}")
+    st.caption(f"Setor: {info_empresa['Setor']} | País: {info_empresa['Pais']}")
     
     # Busca dados de mercado
     market_data = get_market_data(ticker_selecionado)
