@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from st_gsheets_connection import GSheetsConnection
+from gsheetsdb import GSheetsConnection
 
 # =================================================================================
 # CONFIGURAÇÕES DA PÁGINA
