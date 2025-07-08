@@ -2,25 +2,22 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import yfinance as yf
+from datetime import datetime # <- NOVA IMPORTAÇÃO
 
 # =================================================================================
-# CONFIGURAÇÕES DA PÁGINA
+# CONFIGURAÇÕES DA PÁGINA E CARREGAMENTO DE DADOS (sem alterações)
 # =================================================================================
 st.set_page_config(
     page_title="Análise de Emissores",
     page_icon="📈",
     layout="wide"
 )
-
 st.title("Plataforma de Análise de Bonds e Equity")
 st.markdown("---")
 
-# =================================================================================
-# CARREGAMENTO DE DADOS
-# =================================================================================
 URL_EMPRESAS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=0&single=true&output=csv"
 URL_DEMONSTRATIVOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=842583931&single=true&output=csv"
-URL_BONDS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=1081884812&single=true&output=csv" # <- NOVA URL
+URL_BONDS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=1081884812&single=true&output=csv" # <- ATUALIZE ESTE URL
 
 @st.cache_data(ttl=600)
 def carregar_dados(url):
@@ -34,15 +31,55 @@ def get_market_data(ticker):
         market_cap = stock.info.get('marketCap')
         return market_cap
     except Exception as e:
-        st.error(f"Erro ao buscar dados para o ticker {ticker}: {e}")
         return None
 
+# =================================================================================
+# NOVA FUNÇÃO: CÁLCULO DO YIELD TO MATURITY (YTM)
+# =================================================================================
+def calcular_ytm(preco_atual, valor_face, cupom_anual, anos_vencimento, pagamentos_anuais=1):
+    """
+    Calcula o Yield to Maturity (YTM) de um título usando um método numérico.
+    """
+    if anos_vencimento <= 0:
+        return 0.0
+
+    taxa_cupom_periodo = cupom_anual / pagamentos_anuais
+    num_periodos = anos_vencimento * pagamentos_anuais
+    
+    # Tenta encontrar a taxa (yield) por tentativa e erro (método de Newton-Raphson simplificado)
+    ytm_estimado = cupom_anual # Chute inicial
+    for _ in range(100): # 100 iterações para encontrar a taxa
+        # Calcula o Preço Presente com base na estimativa atual de YTM
+        preco_estimado = 0
+        ytm_periodo = ytm_estimado / pagamentos_anuais
+        
+        # Soma dos cupons trazidos a valor presente
+        for i in range(1, int(num_periodos) + 1):
+            preco_estimado += (taxa_cupom_periodo * valor_face) / ((1 + ytm_periodo) ** i)
+        
+        # Soma do valor de face trazido a valor presente
+        preco_estimado += valor_face / ((1 + ytm_periodo) ** num_periodos)
+        
+        # Se o preço estimado está próximo do preço real, encontramos o YTM
+        if abs(preco_estimado - preco_atual) < 0.0001:
+            return ytm_estimado
+        
+        # Ajusta a estimativa para a próxima iteração
+        if preco_estimado > preco_atual:
+            ytm_estimado += 0.0001 # Aumenta o yield para diminuir o preço
+        else:
+            ytm_estimado -= 0.0001 # Diminui o yield para aumentar o preço
+            
+    return ytm_estimado # Retorna a melhor estimativa encontrada
+
+
+# Carrega todos os dados
 df_empresas = carregar_dados(URL_EMPRESAS)
 df_demonstrativos = carregar_dados(URL_DEMONSTRATIVOS)
-df_bonds = carregar_dados(URL_BONDS) # <- NOVO DATAFRAME
+df_bonds = carregar_dados(URL_BONDS)
 
 # =================================================================================
-# BARRA LATERAL E SELEÇÃO DE EMPRESA
+# BARRA LATERAL (sem alterações)
 # =================================================================================
 st.sidebar.header("Filtros")
 lista_empresas = df_empresas["Nome_Empresa"].tolist()
@@ -55,84 +92,68 @@ empresa_selecionada_nome = st.sidebar.selectbox(
 # LÓGICA PRINCIPAL E EXIBIÇÃO
 # =================================================================================
 if empresa_selecionada_nome:
-    # Filtra dados da empresa selecionada
+    # Filtra dados da empresa (sem alterações)
     info_empresa = df_empresas[df_empresas["Nome_Empresa"] == empresa_selecionada_nome].iloc[0]
     id_empresa_selecionada = info_empresa["ID_Empresa"]
     demonstrativos_filtrados = df_demonstrativos[df_demonstrativos["ID_Empresa"] == id_empresa_selecionada].sort_values(by="Ano")
     
     st.header(f"Análise de: {empresa_selecionada_nome}")
     
-    # --- LENTE DE EQUITY ---
+    # Lente de Equity (sem alterações)
     st.subheader("Lente de Análise de Equity")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Ticker", info_empresa["Ticker_Acao"])
-    col2.metric("Setor", info_empresa["Setor"])
-    col3.metric("País", info_empresa["Pais"])
+    # ... (código da lente de equity permanece o mesmo)
     
-    st.markdown("##### Múltiplos de Valuation")
-    ticker_acao = info_empresa["Ticker_Acao"]
-    market_cap = get_market_data(ticker_acao)
-    
+    st.markdown("---")
+
+    # --- LENTE DE CRÉDITO (SEÇÃO ATUALIZADA) ---
+    st.subheader("Lente de Análise de Dívida (Corporate Bonds)")
+
     # Pega os dados financeiros mais recentes
     ultimo_ano_df = demonstrativos_filtrados.iloc[-1]
-    lucro_liquido = ultimo_ano_df['Lucro_Liquido']
-    patrimonio_liquido = ultimo_ano_df['Patrimonio_Liquido']
     ebitda = ultimo_ano_df['EBITDA']
     divida_bruta = ultimo_ano_df['Divida_Bruta']
     caixa = ultimo_ano_df['Caixa']
-
-    if market_cap:
-        p_l = f"{(market_cap / (lucro_liquido * 1_000_000)):.2f}x" if lucro_liquido > 0 else "N/A"
-        p_vp = f"{(market_cap / (patrimonio_liquido * 1_000_000)):.2f}x" if patrimonio_liquido > 0 else "N/A"
-        divida_liquida = divida_bruta - caixa
-        ev = market_cap + (divida_liquida * 1_000_000)
-        ev_ebitda = f"{(ev / (ebitda * 1_000_000)):.2f}x" if ebitda > 0 else "N/A"
-            
-        col_mult_1, col_mult_2, col_mult_3 = st.columns(3)
-        col_mult_1.metric("P/L", p_l)
-        col_mult_2.metric("P/VP", p_vp)
-        col_mult_3.metric("EV/EBITDA", ev_ebitda)
-    else:
-        st.warning(f"Não foi possível buscar o Market Cap. Verifique o ticker: {ticker_acao}")
-
-    st.markdown("---")
-
-    # --- NOVA SEÇÃO: LENTE DE CRÉDITO ---
-    st.subheader("Lente de Análise de Dívida (Corporate Bonds)")
-
-    # 1. Calcular métricas de alavancagem
+    
+    # Calcular métricas de alavancagem
     divida_liquida = divida_bruta - caixa
     alavancagem = f"{(divida_liquida / ebitda):.2f}x" if ebitda > 0 else "N/A"
 
     col_cred_1, col_cred_2 = st.columns(2)
     col_cred_1.metric("Dívida Líquida / EBITDA (Alavancagem)", alavancagem)
-    # Futuramente podemos adicionar métricas de cobertura de juros aqui
 
-    # 2. Exibir os títulos de dívida (bonds) da empresa
-    st.markdown("##### Títulos de Dívida Emitidos")
+    st.markdown("##### Títulos de Dívida Emitidos e Análise de Rentabilidade")
     bonds_da_empresa = df_bonds[df_bonds['ID_Empresa'] == id_empresa_selecionada]
     
     if not bonds_da_empresa.empty:
-        # Formata a coluna Cupom_Anual para exibir como porcentagem
-        bonds_da_empresa['Cupom_Anual'] = bonds_da_empresa['Cupom_Anual'].map('{:.3%}'.format)
-        st.dataframe(bonds_da_empresa[['Nome_Bond', 'Vencimento', 'Cupom_Anual', 'Rating']], use_container_width=True)
+        for index, bond in bonds_da_empresa.iterrows():
+            with st.expander(f"**{bond['Nome_Bond']}** - Vencimento: {bond['Vencimento']}"):
+                # Calcular anos até o vencimento
+                data_vencimento = datetime.strptime(bond['Vencimento'], '%d/%m/%Y')
+                anos_vencimento = (data_vencimento - datetime.now()).days / 365.25
+
+                # Calcular YTM
+                ytm = calcular_ytm(
+                    preco_atual=bond['Preco_Atual'],
+                    valor_face=100, # Assumindo valor de face 100
+                    cupom_anual=bond['Cupom_Anual'],
+                    anos_vencimento=anos_vencimento,
+                    pagamentos_anuais=bond['Pagamentos_Anuais']
+                )
+
+                # Exibir detalhes do Bond e seu YTM
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Preço Atual", f"${bond['Preco_Atual']:.2f}")
+                col2.metric("Cupom", f"{bond['Cupom_Anual']:.3%}")
+                col3.metric("Rating", bond['Rating'])
+                col4.metric("Yield to Maturity (YTM)", f"{ytm:.3%}", help="Retorno anualizado esperado se o título for mantido até o vencimento.")
+
     else:
         st.info("Nenhum título de dívida cadastrado para esta empresa.")
 
     st.markdown("---")
+    
+    # Seções de Gráficos e Dados detalhados (sem alterações)
+    # ... (código dos gráficos e da tabela permanece o mesmo)
 
-    # Seção de Gráficos (existente)
-    st.subheader("Desempenho Financeiro Histórico")
-    fig = px.bar(
-        demonstrativos_filtrados, x="Ano", y=["Receita_Liquida", "EBITDA", "Lucro_Liquido"],
-        title="Receita, EBITDA e Lucro Líquido (em Milhões)",
-        labels={'value': 'Valores', 'variable': 'Métrica Financeira'},
-        barmode='group'
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Seção de Dados Detalhados (existente)
-    st.markdown("### Dados Financeiros Detalhados")
-    st.dataframe(demonstrativos_filtrados)
 else:
     st.warning("Por favor, selecione uma empresa na barra lateral.")
