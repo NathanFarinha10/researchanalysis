@@ -2,23 +2,21 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import yfinance as yf
-from datetime import datetime # <- NOVA IMPORTAÇÃO
+from datetime import datetime
 
 # =================================================================================
-# CONFIGURAÇÕES DA PÁGINA E CARREGAMENTO DE DADOS (sem alterações)
+# CONFIGURAÇÃO E CARREGAMENTO DE DADOS
 # =================================================================================
-st.set_page_config(
-    page_title="Análise de Emissores",
-    page_icon="📈",
-    layout="wide"
-)
-st.title("Plataforma de Análise de Bonds e Equity")
-st.markdown("---")
+st.set_page_config(page_title="Plataforma de Análise", layout="wide")
+st.title("Plataforma Integrada de Análise de Ativos")
 
+# --- URLs DO GOOGLE SHEETS ---
 URL_EMPRESAS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=0&single=true&output=csv"
-URL_DEMONSTRATIVOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=842583931&single=true&output=csv"
-URL_BONDS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=1081884812&single=true&output=csv" # <- ATUALIZE ESTE URL
+URL_DEMONSTRATIVOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=1001090064&single=true&output=csv" # <- ATUALIZAR
+URL_BONDS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpOR6lS0j4bv0PSQmj3KkrWdXlJU8ppseLJvkajDl-CXUfcKU-qKqp2EO15zAFFYYM1ImmT30IOgGj/pub?gid=1081884812&single=true&output=csv"
+# -----------------------------
 
+# Funções de carregamento de dados (sem alterações)
 @st.cache_data(ttl=600)
 def carregar_dados(url):
     df = pd.read_csv(url)
@@ -27,51 +25,9 @@ def carregar_dados(url):
 @st.cache_data(ttl=3600)
 def get_market_data(ticker):
     try:
-        stock = yf.Ticker(ticker)
-        market_cap = stock.info.get('marketCap')
-        return market_cap
-    except Exception as e:
+        return yf.Ticker(ticker).info
+    except Exception:
         return None
-
-# =================================================================================
-# NOVA FUNÇÃO: CÁLCULO DO YIELD TO MATURITY (YTM)
-# =================================================================================
-def calcular_ytm(preco_atual, valor_face, cupom_anual, anos_vencimento, pagamentos_anuais=1):
-    """
-    Calcula o Yield to Maturity (YTM) de um título usando um método numérico.
-    """
-    if anos_vencimento <= 0:
-        return 0.0
-
-    taxa_cupom_periodo = cupom_anual / pagamentos_anuais
-    num_periodos = anos_vencimento * pagamentos_anuais
-    
-    # Tenta encontrar a taxa (yield) por tentativa e erro (método de Newton-Raphson simplificado)
-    ytm_estimado = cupom_anual # Chute inicial
-    for _ in range(100): # 100 iterações para encontrar a taxa
-        # Calcula o Preço Presente com base na estimativa atual de YTM
-        preco_estimado = 0
-        ytm_periodo = ytm_estimado / pagamentos_anuais
-        
-        # Soma dos cupons trazidos a valor presente
-        for i in range(1, int(num_periodos) + 1):
-            preco_estimado += (taxa_cupom_periodo * valor_face) / ((1 + ytm_periodo) ** i)
-        
-        # Soma do valor de face trazido a valor presente
-        preco_estimado += valor_face / ((1 + ytm_periodo) ** num_periodos)
-        
-        # Se o preço estimado está próximo do preço real, encontramos o YTM
-        if abs(preco_estimado - preco_atual) < 0.0001:
-            return ytm_estimado
-        
-        # Ajusta a estimativa para a próxima iteração
-        if preco_estimado > preco_atual:
-            ytm_estimado += 0.0001 # Aumenta o yield para diminuir o preço
-        else:
-            ytm_estimado -= 0.0001 # Diminui o yield para aumentar o preço
-            
-    return ytm_estimado # Retorna a melhor estimativa encontrada
-
 
 # Carrega todos os dados
 df_empresas = carregar_dados(URL_EMPRESAS)
@@ -79,81 +35,76 @@ df_demonstrativos = carregar_dados(URL_DEMONSTRATIVOS)
 df_bonds = carregar_dados(URL_BONDS)
 
 # =================================================================================
-# BARRA LATERAL (sem alterações)
+# BARRA LATERAL
 # =================================================================================
-st.sidebar.header("Filtros")
-lista_empresas = df_empresas["Nome_Empresa"].tolist()
-empresa_selecionada_nome = st.sidebar.selectbox(
-    "Selecione a Empresa:",
-    options=lista_empresas
-)
+st.sidebar.header("Seleção de Ativo")
+# Unifica a seleção, usando o Ticker como chave principal
+dict_empresas = pd.Series(df_empresas.Nome_Empresa.values, index=df_empresas.Ticker_Acao).to_dict()
+ticker_selecionado = st.sidebar.selectbox("Selecione a Empresa:", options=list(dict_empresas.keys()), format_func=lambda x: f"{x} - {dict_empresas[x]}")
 
 # =================================================================================
-# LÓGICA PRINCIPAL E EXIBIÇÃO
+# LÓGICA PRINCIPAL
 # =================================================================================
-if empresa_selecionada_nome:
-    # Filtra dados da empresa (sem alterações)
-    info_empresa = df_empresas[df_empresas["Nome_Empresa"] == empresa_selecionada_nome].iloc[0]
-    id_empresa_selecionada = info_empresa["ID_Empresa"]
-    demonstrativos_filtrados = df_demonstrativos[df_demonstrativos["ID_Empresa"] == id_empresa_selecionada].sort_values(by="Ano")
+if ticker_selecionado:
+    # Filtra dados da empresa selecionada
+    info_empresa = df_empresas[df_empresas["Ticker_Acao"] == ticker_selecionado].iloc[0]
+    demonstrativos_filtrados = df_demonstrativos[df_demonstrativos["Ticker"] == ticker_selecionado].sort_values(by="Ano", ascending=False)
     
-    st.header(f"Análise de: {empresa_selecionada_nome}")
+    st.header(f"{info_empresa['Nome_Empresa']} ({info_empresa['Ticker_Acao']})")
+    st.caption(f"Setor: {info_empresa['Setor']} | País: {info_empresa['País']}")
     
-    # Lente de Equity (sem alterações)
-    st.subheader("Lente de Análise de Equity")
-    # ... (código da lente de equity permanece o mesmo)
-    
-    st.markdown("---")
-
-    # --- LENTE DE CRÉDITO (SEÇÃO ATUALIZADA) ---
-    st.subheader("Lente de Análise de Dívida (Corporate Bonds)")
+    # Busca dados de mercado
+    market_data = get_market_data(ticker_selecionado)
+    market_cap = market_data.get('marketCap') if market_data else None
 
     # Pega os dados financeiros mais recentes
-    ultimo_ano_df = demonstrativos_filtrados.iloc[-1]
-    ebitda = ultimo_ano_df['EBITDA']
-    divida_bruta = ultimo_ano_df['Divida_Bruta']
-    caixa = ultimo_ano_df['Caixa']
-    
-    # Calcular métricas de alavancagem
-    divida_liquida = divida_bruta - caixa
-    alavancagem = f"{(divida_liquida / ebitda):.2f}x" if ebitda > 0 else "N/A"
+    ultimo_ano_df = demonstrativos_filtrados.iloc[0]
 
-    col_cred_1, col_cred_2 = st.columns(2)
-    col_cred_1.metric("Dívida Líquida / EBITDA (Alavancagem)", alavancagem)
+    # Cria as abas da aplicação
+    tab1, tab2, tab3 = st.tabs(["📊 Resumo e Múltiplos", "📈 Análise Financeira", "债券 Análise de Dívida"])
 
-    st.markdown("##### Títulos de Dívida Emitidos e Análise de Rentabilidade")
-    bonds_da_empresa = df_bonds[df_bonds['ID_Empresa'] == id_empresa_selecionada]
-    
-    if not bonds_da_empresa.empty:
-        for index, bond in bonds_da_empresa.iterrows():
-            with st.expander(f"**{bond['Nome_Bond']}** - Vencimento: {bond['Vencimento']}"):
-                # Calcular anos até o vencimento
-                data_vencimento = datetime.strptime(bond['Vencimento'], '%d/%m/%Y')
-                anos_vencimento = (data_vencimento - datetime.now()).days / 365.25
+    # --- ABA 1: RESUMO E MÚLTIPLOS ---
+    with tab1:
+        st.subheader("Valuation e Métricas de Mercado")
+        if market_cap:
+            # Cálculos dos múltiplos
+            lucro_liquido = ultimo_ano_df['Lucro_Liquido']
+            patrimonio_liquido = ultimo_ano_df['Patrimonio_Liquido']
+            ebit = ultimo_ano_df['EBIT']
+            
+            p_l = (market_cap / lucro_liquido) if lucro_liquido > 0 else 0
+            p_vp = (market_cap / patrimonio_liquido) if patrimonio_liquido > 0 else 0
+            ev_ebit = "N/A" # EV/EBIT é mais complexo, deixamos para depois
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Market Cap", f"R$ {(market_cap / 1_000_000_000):.2f} bi")
+            col2.metric("P/L", f"{p_l:.2f}x" if p_l > 0 else "N/A")
+            col3.metric("P/VP", f"{p_vp:.2f}x" if p_vp > 0 else "N/A")
+        else:
+            st.warning("Dados de mercado não disponíveis.")
 
-                # Calcular YTM
-                ytm = calcular_ytm(
-                    preco_atual=bond['Preco_Atual'],
-                    valor_face=100, # Assumindo valor de face 100
-                    cupom_anual=bond['Cupom_Anual'],
-                    anos_vencimento=anos_vencimento,
-                    pagamentos_anuais=bond['Pagamentos_Anuais']
-                )
+    # --- ABA 2: ANÁLISE FINANCEIRA ---
+    with tab2:
+        st.subheader("Desempenho Financeiro Histórico")
+        fig = px.bar(demonstrativos_filtrados, x="Ano", y=["Receita_Liquida", "EBIT", "Lucro_Liquido"], barmode='group', title="Performance Anual (em Milhões)")
+        st.plotly_chart(fig, use_container_width=True)
 
-                # Exibir detalhes do Bond e seu YTM
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Preço Atual", f"${bond['Preco_Atual']:.2f}")
-                col2.metric("Cupom", f"{bond['Cupom_Anual']:.3%}")
-                col3.metric("Rating", bond['Rating'])
-                col4.metric("Yield to Maturity (YTM)", f"{ytm:.3%}", help="Retorno anualizado esperado se o título for mantido até o vencimento.")
+        st.subheader("Ratios de Rentabilidade e Eficiência")
+        # Cálculos de Ratios
+        roe = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Patrimonio_Liquido']) if ultimo_ano_df['Patrimonio_Liquido'] > 0 else 0
+        margem_liquida = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Receita_Liquida']) if ultimo_ano_df['Receita_Liquida'] > 0 else 0
+        margem_ebit = (ultimo_ano_df['EBIT'] / ultimo_ano_df['Receita_Liquida']) if ultimo_ano_df['Receita_Liquida'] > 0 else 0
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("ROE (Return on Equity)", f"{roe:.2%}")
+        col2.metric("Margem Líquida", f"{margem_liquida:.2%}")
+        col3.metric("Margem EBIT", f"{margem_ebit:.2%}")
 
-    else:
-        st.info("Nenhum título de dívida cadastrado para esta empresa.")
-
-    st.markdown("---")
-    
-    # Seções de Gráficos e Dados detalhados (sem alterações)
-    # ... (código dos gráficos e da tabela permanece o mesmo)
+    # --- ABA 3: ANÁLISE DE DÍVIDA ---
+    with tab3:
+        st.subheader("Estrutura de Capital e Títulos de Dívida")
+        # A lógica de Alavancagem e YTM que já construímos pode ser inserida aqui
+        st.info("Seção de análise de dívida em desenvolvimento.")
 
 else:
-    st.warning("Por favor, selecione uma empresa na barra lateral.")
+    st.info("Selecione uma empresa na barra lateral para começar a análise.")
