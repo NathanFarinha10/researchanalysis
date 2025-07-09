@@ -344,7 +344,6 @@ else:
             else:
                 st.warning("Dados financeiros ou de mercado insuficientes para o cálculo.")
     
-    else:
-        st.info("Selecione uma empresa na barra lateral para começar a análise.")
+        else:
+            st.info("Selecione uma empresa na barra lateral para começar a análise.")
 
-#fim do código
