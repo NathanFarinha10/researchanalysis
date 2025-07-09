@@ -121,19 +121,58 @@ if ticker_selecionado:
             st.warning(f"Não foi possível carregar o histórico de preços para o ticker {ticker_selecionado}. Isso pode ser um problema temporário com a fonte de dados (yfinance) ou o ticker pode não ter dados de preço disponíveis.")
 
     # --- ABA 2: ANÁLISE FINANCEIRA ---
+    # --- ABA 2: ANÁLISE FINANCEIRA ---
     with tab2:
-        if ultimo_ano_df is not None:
+        if ultimo_ano_df is not None and not metricas_empresa.empty:
             st.subheader("Desempenho Financeiro Histórico")
-            fig_performance = px.bar(metricas_empresa, x="Ano", y=["Receita_Liquida", "EBIT", "Lucro_Liquido"], barmode='group', title="Performance Anual")
+            fig_performance = px.bar(metricas_empresa.sort_values(by="Ano"), x="Ano", y=["Receita_Liquida", "EBIT", "Lucro_Liquido"], barmode='group', title="Performance Anual")
             st.plotly_chart(fig_performance, use_container_width=True)
 
             st.subheader("Ratios de Rentabilidade (Último Ano)")
-            roe = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Patrimonio_Liquido']) if ultimo_ano_df.get('Patrimonio_Liquido', 0) > 0 else 0
-            margem_liquida = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Receita_Liquida']) if ultimo_ano_df.get('Receita_Liquida', 0) > 0 else 0
+            roe_ultimo_ano = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Patrimonio_Liquido']) if ultimo_ano_df.get('Patrimonio_Liquido', 0) > 0 else 0
+            margem_liquida_ultimo_ano = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Receita_Liquida']) if ultimo_ano_df.get('Receita_Liquida', 0) > 0 else 0
             
             col1, col2 = st.columns(2)
-            col1.metric("ROE (Return on Equity)", f"{roe:.2%}")
-            col2.metric("Margem Líquida", f"{margem_liquida:.2%}")
+            col1.metric("ROE (Return on Equity)", f"{roe_ultimo_ano:.2%}")
+            col2.metric("Margem Líquida", f"{margem_liquida_ultimo_ano:.2%}")
+
+            st.markdown("---")
+
+            # --- NOVA SEÇÃO: ANÁLISE DUPONT ---
+            st.subheader("Análise DuPont (Decomposição do ROE)")
+            st.info("A Análise DuPont decompõe o ROE em três fatores: Lucratividade (Margem Líquida), Eficiência no uso de ativos (Giro dos Ativos) e Alavancagem Financeira.")
+
+            # 1. Calcular os componentes do DuPont para todos os anos
+            df_dupont = metricas_empresa.copy()
+            df_dupont = df_dupont.sort_values(by="Ano") # Ordena do mais antigo para o mais novo para o gráfico
+
+            df_dupont['Margem_Liquida'] = (df_dupont['Lucro_Liquido'] / df_dupont['Receita_Liquida']).where(df_dupont['Receita_Liquida'] != 0, 0)
+            df_dupont['Giro_Ativos'] = (df_dupont['Receita_Liquida'] / df_dupont['Ativos_Totais']).where(df_dupont['Ativos_Totais'] != 0, 0)
+            df_dupont['Alavancagem_Financeira'] = (df_dupont['Ativos_Totais'] / df_dupont['Patrimonio_Liquido']).where(df_dupont['Patrimonio_Liquido'] != 0, 0)
+
+            # 2. Exibir os componentes do último ano
+            st.markdown("##### Componentes do Último Ano Fiscal")
+            ultimo_ano_dupont = df_dupont.iloc[-1]
+            col_dupont1, col_dupont2, col_dupont3 = st.columns(3)
+            col_dupont1.metric("Margem Líquida", f"{ultimo_ano_dupont['Margem_Liquida']:.2%}")
+            col_dupont2.metric("Giro dos Ativos", f"{ultimo_ano_dupont['Giro_Ativos']:.2f}x")
+            col_dupont3.metric("Alavancagem Financeira", f"{ultimo_ano_dupont['Alavancagem_Financeira']:.2f}x")
+
+            # 3. Exibir gráficos históricos dos componentes
+            st.markdown("##### Evolução Histórica dos Componentes")
+            
+            col_grafico1, col_grafico2, col_grafico3 = st.columns(3)
+            with col_grafico1:
+                fig_margem = px.line(df_dupont, x='Ano', y='Margem_Liquida', title='Margem Líquida', markers=True)
+                fig_margem.update_layout(yaxis_tickformat=".1%")
+                st.plotly_chart(fig_margem, use_container_width=True)
+            with col_grafico2:
+                fig_giro = px.line(df_dupont, x='Ano', y='Giro_Ativos', title='Giro dos Ativos', markers=True)
+                st.plotly_chart(fig_giro, use_container_width=True)
+            with col_grafico3:
+                fig_alavancagem = px.line(df_dupont, x='Ano', y='Alavancagem_Financeira', title='Alavancagem Financeira', markers=True)
+                st.plotly_chart(fig_alavancagem, use_container_width=True)
+
         else:
             st.warning("Não há dados financeiros anuais disponíveis para esta empresa.")
             
