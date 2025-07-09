@@ -90,21 +90,48 @@ def transformar_dados(df_perfis, df_metricas):
     df_perfis_final['Data_Ultima_Atualizacao'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # --- Transformação de Métricas ---
+    
     mapeamento_colunas = {
-        'Total Revenue': 'Receita_Liquida', 'Ebit': 'EBIT', 'Net Income': 'Lucro_Liquido',
-        'Total Assets': 'Ativos_Totais', 'Total Liab': 'Passivos_Totais', 
-        'Total Stockholder Equity': 'Patrimonio_Liquido', 'Total Current Assets': 'Ativos_Circulantes',
-        'Total Current Liabilities': 'Passivos_Circulantes','Long Term Debt': 'Divida_Longo_Prazo',
-        'Total Cash': 'Caixa', 'Operating Cash Flow': 'FCO', 'Investing Cash Flow': 'FCI',
-        'Financing Cash Flow': 'FCF', 'Capital Expenditures': 'CAPEX', 'Working Capital': 'Capital_de_Giro'
+        # DRE
+        'Total Revenue': 'Receita_Liquida',
+        'Ebit': 'EBIT',
+        'Operating Income': 'EBIT',
+        'Net Income': 'Lucro_Liquido',
+        'Interest Expense': 'Despesa_Juros', #<-- NOVA MÉTRICA
+        'Interest Expense Non Operating': 'Despesa_Juros', #<-- Alternativo
+    
+        # Balanço Patrimonial
+        'Total Assets': 'Ativos_Totais',
+        'Total Liab': 'Passivos_Totais',
+        'Total Liabilities': 'Passivos_Totais',
+        'Total Stockholder Equity': 'Patrimonio_Liquido',
+        'Stockholders Equity': 'Patrimonio_Liquido',
+        'Shareholders Equity': 'Patrimonio_Liquido', #<-- Alternativo
+        'Total Current Assets': 'Ativos_Circulantes',
+        'Total Current Liabilities': 'Passivos_Circulantes',
+        'Long Term Debt': 'Divida_Longo_Prazo',
+        'Total Cash': 'Caixa',
+        'Cash': 'Caixa', #<-- Alternativo
+        'Cash And Cash Equivalents': 'Caixa', #<-- Alternativo
+        'Working Capital': 'Capital_de_Giro',
+    
+        # Fluxo de Caixa
+        'Operating Cash Flow': 'FCO',
+        'Total Cash From Operating Activities': 'FCO', #<-- Alternativo
+        'Investing Cash Flow': 'FCI',
+        'Total Cashflows From Investing Activities': 'FCI', #<-- Alternativo
+        'Financing Cash Flow': 'FCF',
+        'Total Cash From Financing Activities': 'FCF', #<-- Alternativo
+        'Capital Expenditures': 'CAPEX'
     }
     
     df_metricas_renomeado = df_metricas.rename(columns=mapeamento_colunas)
     
+    # Encontre esta lista e substitua-a por esta versão atualizada
     colunas_finais = [
         'Ticker', 'Ano', 'Receita_Liquida', 'EBIT', 'Lucro_Liquido', 'Ativos_Totais', 
-        'Passivos_Totais', 'Patrimonio_Liquido', 'Caixa', 'Divida_Longo_Prazo', 'FCO', 
-        'FCI', 'FCF', 'CAPEX', 'Capital_de_Giro'
+        'Passivos_Totais', 'Patrimonio_Liquido', 'Caixa', 'Divida_Longo_Prazo', 'Despesa_Juros', #<- Adicionado
+        'FCO', 'FCI', 'FCF', 'CAPEX', 'Capital_de_Giro'
     ]
     
     # Adiciona colunas faltantes com valor 0 para garantir consistência
