@@ -347,3 +347,4 @@ else:
     else:
         st.info("Selecione uma empresa na barra lateral para começar a análise.")
 
+#fim do código
