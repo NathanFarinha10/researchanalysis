@@ -126,6 +126,8 @@ def transformar_dados(df_perfis, df_metricas):
     }
     
     df_metricas_renomeado = df_metricas.rename(columns=mapeamento_colunas)
+
+    df_metricas_renomeado = df_metricas_renomeado.loc[:,~df_metricas_renomeado.columns.duplicated()]
     
     # Encontre esta lista e substitua-a por esta versão atualizada
     colunas_finais = [
