@@ -97,7 +97,7 @@ if ticker_selecionado:
     ultimo_ano_df = metricas_empresa.iloc[0] if not metricas_empresa.empty else None
 
     # --- DEFINIÇÃO DAS ABAS ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Resumo", "📈 Análise Financeira", "债券 Análise de Dívida", "👥 Comparáveis de Mercado"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Resumo", "📈 Análise Financeira", "债券 Análise de Dívida", "👥 Comparáveis", "⏳ Valuation Histórico"])
 
     # --- ABA 1: RESUMO ---
     # --- ABA 1: RESUMO ---
@@ -297,3 +297,66 @@ if ticker_selecionado:
 
 else:
     st.info("Selecione uma empresa na barra lateral para começar a análise.")
+
+
+    with tab5:
+            st.subheader(f"Histórico de P/L (Preço/Lucro) dos Últimos 5 Anos")
+            
+            with st.spinner("Calculando histórico de valuation... Este processo pode levar um momento."):
+                if not price_history.empty and not metricas_trimestrais_empresa.empty and market_data:
+                    try:
+                        # 1. Preparar dados de lucro trimestral
+                        df_lucro = metricas_trimestrais_empresa[['Data_Reporte', 'Lucro_Liquido']].copy()
+                        df_lucro['Data_Reporte'] = pd.to_datetime(df_lucro['Data_Reporte'])
+                        df_lucro = df_lucro.sort_values(by='Data_Reporte')
+                        
+                        # 2. Calcular o Lucro dos Últimos 12 Meses (TTM)
+                        df_lucro['Lucro_TTM'] = df_lucro['Lucro_Liquido'].rolling(window=4).sum()
+                        df_lucro.dropna(inplace=True) # Remove as primeiras linhas que não têm 4 trimestres para somar
+    
+                        # 3. Preparar dados de preço e market cap diários
+                        df_preco = price_history[['Close']].copy()
+                        df_preco.index = df_preco.index.tz_convert(None) # Remove timezone para o merge
+                        
+                        # Usa o número de ações atual para estimar o market cap histórico (uma aproximação comum)
+                        shares_outstanding = market_data.get('sharesOutstanding', 0)
+                        if shares_outstanding > 0:
+                            df_preco['MarketCap_Hist'] = df_preco['Close'] * shares_outstanding
+                        else:
+                            st.warning("Número de ações não disponível. Não é possível calcular P/L histórico.")
+                            st.stop()
+                        
+                        # 4. Juntar dados diários com trimestrais
+                        df_pl = pd.merge_asof(df_preco.sort_index(), df_lucro.sort_values(by='Data_Reporte'), 
+                                              left_index=True, right_on='Data_Reporte', direction='backward')
+                        
+                        # 5. Calcular o P/L Histórico
+                        df_pl['PL_Historico'] = (df_pl['MarketCap_Hist'] / df_pl['Lucro_TTM']).where(df_pl['Lucro_TTM'] > 0)
+                        
+                        # 6. Calcular as linhas de referência
+                        pl_medio = df_pl['PL_Historico'].mean()
+                        pl_max = df_pl['PL_Historico'].max()
+                        pl_min = df_pl['PL_Historico'].min()
+                        pl_atual = df_pl['PL_Historico'].iloc[-1]
+                        
+                        st.markdown("##### Análise do P/L Atual vs. Média Histórica")
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("P/L Atual", f"{pl_atual:.2f}x")
+                        col2.metric("Média de 5 Anos", f"{pl_medio:.2f}x")
+                        delta_media = ((pl_atual - pl_medio) / pl_medio) if pl_medio != 0 else 0
+                        col3.metric("Posição vs. Média", f"{delta_media:.1%}", help="Indica se o P/L atual está acima ou abaixo da sua média histórica de 5 anos.")
+    
+                        # 7. Plotar o gráfico
+                        fig_pl_hist = px.line(df_pl, x='Data_Reporte', y='PL_Historico', title=f'P/L Histórico de {ticker_selecionado}')
+                        fig_pl_hist.add_hline(y=pl_medio, line_dash="dot", line_color="green", annotation_text=f"Média: {pl_medio:.2f}x")
+                        fig_pl_hist.add_hline(y=pl_max, line_dash="dot", line_color="red", annotation_text=f"Máxima: {pl_max:.2f}x")
+                        fig_pl_hist.add_hline(y=pl_min, line_dash="dot", line_color="red", annotation_text=f"Mínima: {pl_min:.2f}x")
+                        
+                        st.plotly_chart(fig_pl_hist, use_container_width=True)
+    
+                    except Exception as e:
+                        st.error(f"Ocorreu um erro ao gerar a análise histórica: {e}")
+                else:
+                    st.warning("Não há dados trimestrais ou de preço suficientes para gerar a análise de valuation histórico.")
+    else:
+        st.info("Selecione uma empresa na barra lateral para começar a análise.")
