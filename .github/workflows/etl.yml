@@ -1,0 +1,39 @@
+name: Coleta de Dados Financeiros
+
+# Gatilhos: QUANDO a ação deve rodar
+on:
+  # 1. Em um horário agendado (usando a sintaxe cron)
+  schedule:
+    # Roda todo dia às 6h UTC (que corresponde às 3h da manhã no horário de Brasília)
+    - cron: '0 6 * * *'
+  
+  # 2. Permite que o workflow seja executado manualmente a partir da aba "Actions"
+  workflow_dispatch:
+
+# Tarefas: O QUE a ação deve fazer
+jobs:
+  run-etl-script:
+    runs-on: ubuntu-latest # Roda em uma máquina virtual Linux padrão
+    steps:
+      # Passo 1: Baixa o código do seu repositório para a máquina virtual
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Passo 2: Configura o ambiente Python na versão 3.11
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # Passo 3: Instala as bibliotecas Python que nosso script precisa
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas gspread
+
+      # Passo 4: Executa o nosso script de ETL
+      - name: Run ETL script
+        env:
+          # Define a variável de ambiente com o segredo que criamos no Passo 1
+          GCP_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}
+        run: python etl_script.py
