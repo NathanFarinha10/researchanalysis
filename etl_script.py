@@ -13,116 +13,115 @@ ABA_METRICAS_ANUAIS = "metricas_anuais"
 ABA_METRICAS_TRIMESTRAIS = "metricas_trimestrais"
 
 def autenticar_gspread():
-    """Autentica com o Google Sheets usando as credenciais."""
-    print("Iniciando autenticação com o Google Sheets...")
+    """Autentica com o Google Sheets."""
+    print("Autenticando com Google Sheets...")
     creds_json_str = os.getenv("GCP_SERVICE_ACCOUNT_CREDENTIALS")
     if not creds_json_str:
-        raise ValueError("Credenciais GCP_SERVICE_ACCOUNT_CREDENTIALS não encontradas.")
-    
-    creds_dict = json.loads(creds_json_str)
-    gc = gspread.service_account_from_dict(creds_dict)
-    print("Autenticação bem-sucedida.")
+        raise ValueError("Credenciais não encontradas.")
+    gc = gspread.service_account_from_dict(json.loads(creds_json_str))
+    print("Autenticação OK.")
     return gc
 
-def extrair_dados_yfinance(tickers):
-    """Extrai dados de perfil, anuais e trimestrais do yfinance."""
-    print(f"Iniciando extração de dados do yfinance para {len(tickers)} tickers...")
-    dados_perfis, lista_metricas_anuais, lista_metricas_trimestrais = [], [], []
-    
-    for ticker_str in tickers:
+def find_column_by_priority(df, keys):
+    """Procura por uma coluna em uma lista de chaves prioritárias."""
+    for key in keys:
+        if key in df.columns:
+            return df[key]
+    return pd.Series(0, index=df.index)
+
+def extrair_e_transformar(tickers):
+    """Função única que extrai dados do yfinance e os transforma."""
+    print(f"Iniciando extração para {len(tickers)} tickers...")
+    all_perfis, all_anuais, all_trimestrais = [], [], []
+
+    for ticker in tickers:
         try:
-            print(f"  Processando ticker: {ticker_str}...")
-            stock = yf.Ticker(ticker_str)
+            print(f"  Processando {ticker}...")
+            stock = yf.Ticker(ticker)
             info = stock.info
             
-            dados_perfis.append({'Ticker': ticker_str, 'Pais': info.get('country'), 'Setor_API': info.get('sector'), 'Industria_API': info.get('industry'), 'Descricao_Longa': info.get('longBusinessSummary'), 'Website': info.get('website')})
+            # Perfil
+            all_perfis.append({'Ticker': ticker, 'Pais': info.get('country'), 'Setor_API': info.get('sector'), 'Descricao_Longa': info.get('longBusinessSummary')})
 
-            financials_anual = pd.merge(stock.financials.transpose().reset_index(), stock.balance_sheet.transpose().reset_index(), on='index', how='left').merge(stock.cashflow.transpose().reset_index(), on='index', how='left')
-            financials_anual.rename(columns={'index': 'Data_Reporte'}, inplace=True)
-            financials_anual['Ticker'] = ticker_str
-            lista_metricas_anuais.append(financials_anual)
+            # Processa tanto anual quanto trimestral
+            for period in ['anual', 'trimestral']:
+                if period == 'anual':
+                    financials = stock.financials
+                    balance_sheet = stock.balance_sheet
+                    cash_flow = stock.cashflow
+                else:
+                    financials = stock.quarterly_financials
+                    balance_sheet = stock.quarterly_balance_sheet
+                    cash_flow = stock.quarterly_cashflow
 
-            financials_trimestral = pd.merge(stock.quarterly_financials.transpose().reset_index(), stock.quarterly_balance_sheet.transpose().reset_index(), on='index', how='left').merge(stock.quarterly_cashflow.transpose().reset_index(), on='index', how='left')
-            financials_trimestral.rename(columns={'index': 'Data_Reporte'}, inplace=True)
-            financials_trimestral['Ticker'] = ticker_str
-            lista_metricas_trimestrais.append(financials_trimestral)
-            
+                if financials.empty or balance_sheet.empty or cash_flow.empty:
+                    continue
+
+                # Transforma e combina
+                df = pd.concat([financials, balance_sheet, cash_flow]).transpose().reset_index().rename(columns={'index': 'Data_Reporte'})
+                df['Ticker'] = ticker
+
+                # CALCULO E BUSCA INTELIGENTE DAS MÉTRICAS
+                df['Receita_Liquida'] = find_column_by_priority(df, ['Total Revenue'])
+                df['EBIT'] = find_column_by_priority(df, ['Ebit', 'Operating Income'])
+                df['Lucro_Liquido'] = find_column_by_priority(df, ['Net Income'])
+                df['Despesa_Juros'] = find_column_by_priority(df, ['Interest Expense'])
+                df['Ativos_Totais'] = find_column_by_priority(df, ['Total Assets'])
+                df['Passivos_Totais'] = find_column_by_priority(df, ['Total Liab', 'Total Liabilities'])
+                df['Patrimonio_Liquido'] = df['Ativos_Totais'] - df['Passivos_Totais'] # Cálculo direto
+                df['Caixa'] = find_column_by_priority(df, ['Cash And Cash Equivalents', 'Cash'])
+                df['Divida_Longo_Prazo'] = find_column_by_priority(df, ['Long Term Debt'])
+                df['FCO'] = find_column_by_priority(df, ['Operating Cash Flow', 'Total Cash From Operating Activities'])
+                df['CAPEX'] = find_column_by_priority(df, ['Capital Expenditure', 'Change In Fixed Assets And Intangibles', 'Purchase Of Property Plant And Equipment'])
+                
+                df['Data_Reporte'] = pd.to_datetime(df['Data_Reporte'])
+
+                if period == 'anual':
+                    df['Ano'] = df['Data_Reporte'].dt.year
+                    all_anuais.append(df)
+                else:
+                    all_trimestrais.append(df)
         except Exception as e:
-            print(f"  ERRO ao processar {ticker_str}: {e}")
+            print(f"  ERRO GERAL ao processar {ticker}: {e}")
             continue
-            
-    print("Extração de dados do yfinance concluída.")
-    return pd.DataFrame(dados_perfis), pd.concat(lista_metricas_anuais, ignore_index=True), pd.concat(lista_metricas_trimestrais, ignore_index=True)
-
-def transformar_metricas(df_metricas, eh_anual=True):
-    """Padroniza e limpa um DataFrame de métricas (anual ou trimestral)."""
-    # DICIONÁRIO FINAL E CORRIGIDO
-    mapeamento_colunas = {
-        'Total Revenue': 'Receita_Liquida', 'Ebit': 'EBIT', 'Operating Income': 'EBIT', 
-        'Net Income': 'Lucro_Liquido', 'Interest Expense': 'Despesa_Juros',
-        'Total Assets': 'Ativos_Totais', 'Total Liab': 'Passivos_Totais', 
-        'Total Stockholder Equity': 'Patrimonio_Liquido', 'Total Current Assets': 'Ativos_Circulantes',
-        'Total Current Liabilities': 'Passivos_Circulantes', 'Long Term Debt': 'Divida_Longo_Prazo', 
-        'Total Cash': 'Caixa', 'Cash And Cash Equivalents': 'Caixa', 'Working Capital': 'Capital_de_Giro', 
-        'Total Cash From Operating Activities': 'FCO', 'Operating Cash Flow': 'FCO',
-        'Total Cashflows From Investing Activities': 'FCI', 'Investing Cash Flow': 'FCI',
-        'Total Cash From Financing Activities': 'FCF', 'Financing Cash Flow': 'FCF',
-        'Capital Expenditure': 'CAPEX', # <-- CORRIGIDO PARA O SINGULAR
-    }
     
-    df_renomeado = df_metricas.rename(columns=mapeamento_colunas).loc[:,~df_metricas.rename(columns=mapeamento_colunas).columns.duplicated()]
-    df_renomeado['Data_Reporte'] = pd.to_datetime(df_renomeado['Data_Reporte']).dt.strftime('%Y-%m-%d')
+    print("Extração concluída.")
+    return pd.DataFrame(all_perfis), pd.concat(all_anuais, ignore_index=True), pd.concat(all_trimestrais, ignore_index=True)
 
-    colunas_base = ['Ticker', 'Receita_Liquida', 'EBIT', 'Lucro_Liquido', 'Ativos_Totais', 'Passivos_Totais', 'Patrimonio_Liquido', 'Caixa', 'Divida_Longo_Prazo', 'Despesa_Juros', 'FCO', 'FCI', 'FCF', 'CAPEX', 'Capital_de_Giro']
-    if eh_anual:
-        df_renomeado['Ano'] = pd.to_datetime(df_renomeado['Data_Reporte']).dt.year
-        colunas_finais = ['Ticker', 'Ano'] + colunas_base[1:]
-    else:
-        colunas_finais = ['Ticker', 'Data_Reporte'] + colunas_base[1:]
-
-    for col in colunas_finais:
-        if col not in df_renomeado.columns:
-            df_renomeado[col] = 0
-            
-    df_final = df_renomeado[colunas_finais].fillna(0)
-    df_final['Data_Ultima_Atualizacao'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return df_final
-
-def carregar_dados_para_gsheets(gc, df, nome_aba):
-    """Carrega um DataFrame para uma aba específica da planilha."""
-    print(f"Iniciando carregamento para a aba '{nome_aba}'...")
+def carregar_para_gsheets(gc, df, nome_aba):
+    """Carrega um DataFrame para uma aba específica."""
+    print(f"Carregando dados para '{nome_aba}'...")
     try:
-        spreadsheet = gc.open(NOME_PLANILHA)
-        worksheet = spreadsheet.worksheet(nome_aba)
-        worksheet.clear()
-        dados_para_escrever = [df.columns.values.tolist()] + df.values.tolist()
-        worksheet.update('A1', dados_para_escrever, value_input_option='USER_ENTERED')
-        print(f"Sucesso! {len(df)} linhas carregadas em '{nome_aba}'.")
+        ss = gc.open(NOME_PLANILHA)
+        ws = ss.worksheet(nome_aba)
+        ws.clear()
+        # Garante que as colunas com dados sejam escritas primeiro
+        df_sem_nan = df.dropna(axis=1, how='all')
+        ws.update([df_sem_nan.columns.values.tolist()] + df_sem_nan.values.tolist(), value_input_option='USER_ENTERED')
+        print(f"Sucesso. {len(df)} linhas carregadas.")
     except Exception as e:
-        print(f"ERRO ao carregar dados para '{nome_aba}': {e}")
+        print(f"ERRO ao carregar para '{nome_aba}': {e}")
 
 def main():
     """Função principal que orquestra o processo de ETL."""
-    print("--- INICIANDO PROCESSO DE ETL ---")
+    print("--- INICIANDO PROCESSO DE ETL DEFINITIVO ---")
     gc = autenticar_gspread()
-    worksheet_master = gc.open(NOME_PLANILHA).worksheet(ABA_MASTER)
-    tickers_para_buscar = [row['Ticker'] for row in worksheet_master.get_all_records() if row.get('Ticker')]
     
-    if not tickers_para_buscar:
-        print("Nenhum ticker encontrado na aba master. Encerrando.")
+    master_ws = gc.open(NOME_PLANILHA).worksheet(ABA_MASTER)
+    tickers = [row['Ticker'] for row in master_ws.get_all_records() if row.get('Ticker')]
+    
+    if not tickers:
+        print("Nenhum ticker encontrado na aba master.")
         return
         
-    df_perfis_raw, df_metricas_anuais_raw, df_metricas_trimestrais_raw = extrair_dados_yfinance(tickers_para_buscar)
-    
-    df_perfis_final = pd.DataFrame(df_perfis_raw)
-    df_perfis_final['Data_Ultima_Atualizacao'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    df_metricas_anuais_final = transformar_metricas(df_metricas_anuais_raw, eh_anual=True)
-    df_metricas_trimestrais_final = transformar_metricas(df_metricas_trimestrais_raw, eh_anual=False)
-    
-    carregar_dados_para_gsheets(gc, df_perfis_final, ABA_PERFIS)
-    carregar_dados_para_gsheets(gc, df_metricas_anuais_final, ABA_METRICAS_ANUAIS)
-    carregar_dados_para_gsheets(gc, df_metricas_trimestrais_final, ABA_METRICAS_TRIMESTRAIS)
+    df_perfis, df_anuais, df_trimestrais = extrair_e_transformar(tickers)
+
+    colunas_finais_anuais = ['Ticker', 'Ano', 'Receita_Liquida', 'EBIT', 'Lucro_Liquido', 'Ativos_Totais', 'Passivos_Totais', 'Patrimonio_Liquido', 'Caixa', 'Divida_Longo_Prazo', 'Despesa_Juros', 'FCO', 'CAPEX']
+    colunas_finais_trimestrais = ['Ticker', 'Data_Reporte', 'Receita_Liquida', 'EBIT', 'Lucro_Liquido', 'Ativos_Totais', 'Passivos_Totais', 'Patrimonio_Liquido', 'Caixa', 'Divida_Longo_Prazo', 'Despesa_Juros', 'FCO', 'CAPEX']
+
+    carregar_para_gsheets(gc, df_perfis, ABA_PERFIS)
+    carregar_para_gsheets(gc, df_anuais.reindex(columns=colunas_finais_anuais).fillna(0), ABA_METRICAS_ANUAIS)
+    carregar_para_gsheets(gc, df_trimestrais.reindex(columns=colunas_finais_trimestrais).fillna(0), ABA_METRICAS_TRIMESTRAIS)
     
     print("--- PROCESSO DE ETL CONCLUÍDO ---")
 
