@@ -81,6 +81,11 @@ else:
     ticker_selecionado = None
     st.stop()
 
+st.sidebar.header("Premissas para o DCF")
+taxa_crescimento_5a = st.sidebar.slider("Taxa de Crescimento do FCF (5 anos)", 0.0, 0.20, 0.05, format="%.2f")
+taxa_perpetuidade = st.sidebar.slider("Taxa de Crescimento na Perpetuidade", 0.0, 0.05, 0.02, format="%.2f")
+wacc = st.sidebar.slider("WACC (Taxa de Desconto)", 0.05, 0.25, 0.10, format="%.2f")
+
 # =================================================================================
 # LÓGICA PRINCIPAL DA APLICAÇÃO
 # =================================================================================
@@ -99,7 +104,8 @@ if ticker_selecionado:
     ultimo_ano_df = metricas_anuais_empresa.iloc[0] if not metricas_anuais_empresa.empty else None
 
     # --- DEFINIÇÃO DAS ABAS ---
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Resumo", "📈 Análise Financeira", "债券 Análise de Dívida", "👥 Comparáveis", "⏳ Valuation Histórico"])
+    tab_list = ["📊 Resumo", "📈 Análise Financeira", "债券 Análise de Dívida", "👥 Comparáveis", "⏳ Valuation Histórico", "💰 Valuation (DCF)"]
+    tabs = st.tabs(tab_list)
 
     # --- ABA 1: RESUMO ---
     with tab1:
@@ -268,3 +274,76 @@ if ticker_selecionado:
 
 else:
     st.info("Selecione uma empresa na barra lateral para começar a análise.")
+
+
+    with tabs[5]:
+            st.subheader("Modelo de Fluxo de Caixa Descontado (DCF Simplificado)")
+            
+            if ultimo_ano_df is not None and market_data:
+                # 1. Pega os dados necessários
+                fco = ultimo_ano_df.get('FCO', 0)
+                capex = ultimo_ano_df.get('CAPEX', 0)
+                fcf_inicial = fco + capex # Capex é negativo, então somamos
+                
+                divida_total = market_data.get('totalDebt', 0)
+                caixa = market_data.get('totalCash', 0)
+                divida_liquida = divida_total - caixa
+                
+                acoes_em_circulacao = market_data.get('sharesOutstanding', 0)
+                preco_atual = market_data.get('currentPrice', 0)
+    
+                if fcf_inicial > 0 and acoes_em_circulacao > 0:
+                    # 2. Projeta o FCF para os próximos 5 anos
+                    fcf_projetado = []
+                    for i in range(1, 6):
+                        fcf_projetado.append(fcf_inicial * ((1 + taxa_crescimento_5a) ** i))
+                    
+                    # 3. Calcula o Valor Terminal
+                    ultimo_fcf_projetado = fcf_projetado[-1]
+                    valor_terminal = (ultimo_fcf_projetado * (1 + taxa_perpetuidade)) / (wacc - taxa_perpetuidade)
+                    
+                    # 4. Desconta todos os fluxos a valor presente
+                    fcf_descontado = []
+                    for i, fcf in enumerate(fcf_projetado):
+                        fcf_descontado.append(fcf / ((1 + wacc) ** (i + 1)))
+                    
+                    valor_terminal_descontado = valor_terminal / ((1 + wacc) ** 5)
+                    
+                    # 5. Calcula o Preço-Alvo
+                    enterprise_value = sum(fcf_descontado) + valor_terminal_descontado
+                    equity_value = enterprise_value - divida_liquida
+                    preco_alvo = equity_value / acoes_em_circulacao
+                    upside = ((preco_alvo / preco_atual) - 1) if preco_atual > 0 else 0
+                    
+                    # 6. Exibe os Resultados
+                    st.markdown("##### Resultado do Valuation")
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Preço-Alvo (DCF)", f"R$ {preco_alvo:.2f}")
+                    col2.metric("Preço Atual", f"R$ {preco_atual:.2f}")
+                    col3.metric("Potencial de Upside", f"{upside:.2%}")
+                    
+                    st.markdown("---")
+                    st.markdown("##### Detalhamento do Cálculo")
+                    
+                    # Cria um DataFrame para visualização
+                    df_projecao = pd.DataFrame({
+                        'Ano': [f'Ano {i}' for i in range(1, 6)],
+                        'FCF Projetado': fcf_projetado,
+                        'FCF Descontado': fcf_descontado
+                    })
+                    st.dataframe(df_projecao.style.format("R$ {:,.2f}"))
+                    
+                    st.write(f"**Valor Terminal (após o Ano 5):** R$ {valor_terminal:,.2f}")
+                    st.write(f"**Valor Terminal Descontado:** R$ {valor_terminal_descontado:,.2f}")
+                    st.write(f"**Enterprise Value (Soma dos FCFs):** R$ {enterprise_value:,.2f}")
+                    st.write(f"**Dívida Líquida:** R$ {divida_liquida:,.2f}")
+                    st.write(f"**Equity Value (Valor para o Acionista):** R$ {equity_value:,.2f}")
+    
+                else:
+                    st.warning("Não foi possível realizar o cálculo de DCF. Verifique se a empresa possui Fluxo de Caixa Livre positivo e se os dados de mercado estão disponíveis.")
+            else:
+                st.warning("Dados financeiros ou de mercado insuficientes para o cálculo.")
+    
+    else:
+        st.info("Selecione uma empresa na barra lateral para começar a análise.")
+
