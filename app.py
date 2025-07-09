@@ -112,10 +112,78 @@ if ticker_selecionado:
             st.warning("Não há dados financeiros para analisar a dívida.")
             
     # --- ABA 4: COMPARÁVEIS DE MERCADO ---
-    with tab4:
+   with tab4:
         st.subheader(f"Análise de Comparáveis do Setor: {info_empresa['Setor_Manual']}")
+        
+        # 1. Encontrar os pares (peers)
         peers = df_empresas_master[df_empresas_master['Setor_Manual'] == info_empresa['Setor_Manual']]
-        st.info("Funcionalidade de comparáveis em desenvolvimento nesta nova arquitetura.")
+        
+        # 2. Coletar e calcular dados para os pares
+        with st.spinner("Buscando dados de mercado para as empresas do setor..."):
+            comparables_data = []
+            for index, peer in peers.iterrows():
+                peer_ticker = peer['Ticker']
+                peer_market_data = get_market_data(peer_ticker)
+                
+                if not peer_market_data or not peer_market_data.get('marketCap'):
+                    continue
 
+                peer_financials = df_metricas_anuais[df_metricas_anuais['Ticker'] == peer_ticker].sort_values(by="Ano", ascending=False)
+                if peer_financials.empty:
+                    continue
+
+                latest_financials = peer_financials.iloc[0]
+                
+                # Coleta de dados para os cálculos
+                market_cap = peer_market_data.get('marketCap', 0)
+                lucro_liquido = latest_financials.get('Lucro_Liquido', 0)
+                patrimonio_liquido = latest_financials.get('Patrimonio_Liquido', 0)
+                ebit = latest_financials.get('EBIT', 0)
+                divida_total = peer_market_data.get('totalDebt', 0)
+                caixa = peer_market_data.get('totalCash', 0)
+                
+                # Cálculos dos múltiplos
+                p_l = (market_cap / lucro_liquido) if lucro_liquido > 0 else 0
+                p_vp = (market_cap / patrimonio_liquido) if patrimonio_liquido > 0 else 0
+                
+                enterprise_value = market_cap + divida_total - caixa
+                ev_ebit = (enterprise_value / ebit) if ebit > 0 else 0
+                
+                comparables_data.append({
+                    'Empresa': peer['Nome_Empresa'],
+                    'Ticker': peer_ticker,
+                    'P/L': p_l,
+                    'P/VP': p_vp,
+                    'EV/EBIT': ev_ebit
+                })
+
+        if comparables_data:
+            df_comparables = pd.DataFrame(comparables_data).round(2)
+            
+            # 3. Exibir a tabela de comparáveis
+            st.markdown("##### Tabela de Múltiplos do Setor")
+            st.dataframe(df_comparables.set_index('Ticker'), use_container_width=True)
+
+            # 4. Exibir gráficos comparativos
+            st.markdown("##### Gráficos Comparativos de Valuation")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                df_pl = df_comparables[(df_comparables['P/L'] > 0) & (df_comparables['P/L'] < 100)] # Filtra outliers
+                fig_pl = px.bar(df_pl.sort_values('P/L'), x='Ticker', y='P/L', title='Comparativo de P/L', color='Empresa')
+                st.plotly_chart(fig_pl, use_container_width=True)
+            
+            with col2:
+                df_pvp = df_comparables[(df_comparables['P/VP'] > 0) & (df_comparables['P/VP'] < 20)] # Filtra outliers
+                fig_pvp = px.bar(df_pvp.sort_values('P/VP'), x='Ticker', y='P/VP', title='Comparativo de P/VP', color='Empresa')
+                st.plotly_chart(fig_pvp, use_container_width=True)
+                
+            with col3:
+                df_evebit = df_comparables[(df_comparables['EV/EBIT'] > 0) & (df_comparables['EV/EBIT'] < 50)] # Filtra outliers
+                fig_evebit = px.bar(df_evebit.sort_values('EV/EBIT'), x='Ticker', y='EV/EBIT', title='Comparativo de EV/EBIT', color='Empresa')
+                st.plotly_chart(fig_evebit, use_container_width=True)
+        else:
+            st.warning("Não foi possível encontrar dados para os comparáveis do setor.")
 else:
     st.info("Selecione uma empresa na barra lateral para começar a análise.")
