@@ -120,6 +120,7 @@ if ticker_selecionado:
             # Mensagem de aviso que aparecerá se o gráfico não puder ser gerado
             st.warning(f"Não foi possível carregar o histórico de preços para o ticker {ticker_selecionado}. Isso pode ser um problema temporário com a fonte de dados (yfinance) ou o ticker pode não ter dados de preço disponíveis.")
 
+        pass
     # --- ABA 2: ANÁLISE FINANCEIRA ---
     # --- ABA 2: ANÁLISE FINANCEIRA ---
     with tab2:
@@ -175,7 +176,7 @@ if ticker_selecionado:
 
         else:
             st.warning("Não há dados financeiros anuais disponíveis para esta empresa.")
-            
+        pass        
     # --- ABA 3: ANÁLISE DE DÍVIDA ---
     with tab3:
         st.subheader("Perfil da Dívida e Métricas de Crédito")
@@ -236,7 +237,7 @@ if ticker_selecionado:
                 st.info("Nenhum título de dívida cadastrado para esta empresa.")
         else:
             st.warning("Não há dados financeiros para analisar a dívida.")
-            
+        pass      
     # --- ABA 4: COMPARÁVEIS DE MERCADO ---
     with tab4:
         st.subheader(f"Análise de Comparáveis do Setor: {info_empresa['Setor_Manual']}")
@@ -298,7 +299,7 @@ if ticker_selecionado:
 else:
     st.info("Selecione uma empresa na barra lateral para começar a análise.")
 
-
+        pass
     with tab5:
         st.subheader(f"Histórico de P/L (Preço/Lucro) dos Últimos 5 Anos")
         
