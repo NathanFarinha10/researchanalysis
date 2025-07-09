@@ -23,7 +23,9 @@ def carregar_dados_gsheets(worksheet_name):
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         
-        cols_to_numeric = [col for col in df.columns if col not in ['Ticker', 'Nome_Empresa', 'Setor_Manual', 'Pais', 'Website', 'Descricao_Longa', 'Data_Reporte', 'Data_Ultima_Atualizacao', 'Nome_Bond', 'Rating', 'Vencimento']]
+        # Converte colunas para numérico, ignorando as que devem ser texto.
+        cols_to_ignore = ['Ticker', 'Nome_Empresa', 'Setor_Manual', 'Pais', 'Website', 'Descricao_Longa', 'Data_Reporte', 'Data_Ultima_Atualizacao', 'Nome_Bond', 'Rating', 'Vencimento']
+        cols_to_numeric = [col for col in df.columns if col not in cols_to_ignore]
         for col in cols_to_numeric:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
@@ -37,7 +39,7 @@ def get_yfinance_data(ticker):
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
-        history = stock.history(period="5y") # Pegando 5 anos para o gráfico histórico
+        history = stock.history(period="5y")
         return info, history
     except Exception:
         return None, pd.DataFrame()
@@ -120,14 +122,14 @@ if ticker_selecionado:
     with tab2:
         if ultimo_ano_df is not None:
             st.subheader("Desempenho Financeiro Histórico (Anual)")
-            fig_performance = px.bar(metricas_anuais_empresa.sort_values(by="Ano"), x="Ano", y=["Receita_Liquida", "EBIT", "Lucro_Liquido"], barmode='group', title="Performance Anual (em Milhões)")
+            fig_performance = px.bar(metricas_anuais_empresa.sort_values(by="Ano"), x="Ano", y=["Receita_Liquida", "EBIT", "Lucro_Liquido"], barmode='group', title="Performance Anual")
             st.plotly_chart(fig_performance, use_container_width=True)
 
             st.subheader("Análise DuPont (Decomposição do ROE - Último Ano)")
-            roe = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Patrimonio_Liquido']) if ultimo_ano_df.get('Patrimonio_Liquido', 0) > 0 else 0
-            margem = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Receita_Liquida']) if ultimo_ano_df.get('Receita_Liquida', 0) > 0 else 0
-            giro = (ultimo_ano_df['Receita_Liquida'] / ultimo_ano_df['Ativos_Totais']) if ultimo_ano_df.get('Ativos_Totais', 0) > 0 else 0
-            alavancagem = (ultimo_ano_df['Ativos_Totais'] / ultimo_ano_df['Patrimonio_Liquido']) if ultimo_ano_df.get('Patrimonio_Liquido', 0) > 0 else 0
+            roe = (ultimo_ano_df.get('Lucro_Liquido', 0) / ultimo_ano_df.get('Patrimonio_Liquido', 1)) if ultimo_ano_df.get('Patrimonio_Liquido') else 0
+            margem = (ultimo_ano_df.get('Lucro_Liquido', 0) / ultimo_ano_df.get('Receita_Liquida', 1)) if ultimo_ano_df.get('Receita_Liquida') else 0
+            giro = (ultimo_ano_df.get('Receita_Liquida', 0) / ultimo_ano_df.get('Ativos_Totais', 1)) if ultimo_ano_df.get('Ativos_Totais') else 0
+            alavancagem = (ultimo_ano_df.get('Ativos_Totais', 0) / ultimo_ano_df.get('Patrimonio_Liquido', 1)) if ultimo_ano_df.get('Patrimonio_Liquido') else 0
 
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("ROE", f"{roe:.2%}")
@@ -171,16 +173,98 @@ if ticker_selecionado:
     # --- ABA 4: COMPARÁVEIS DE MERCADO ---
     with tab4:
         st.subheader(f"Análise de Comparáveis do Setor: {info_empresa['Setor_Manual']}")
-        # ... (código da aba de comparáveis que já funcionava) ...
-        pass
+        peers = df_empresas_master[df_empresas_master['Setor_Manual'] == info_empresa['Setor_Manual']]
+        
+        with st.spinner("Buscando dados de mercado para as empresas do setor..."):
+            comparables_data = []
+            for index, peer in peers.iterrows():
+                peer_ticker = peer['Ticker']
+                peer_market_data = get_yfinance_data(peer_ticker)[0]
+                
+                if not peer_market_data or not peer_market_data.get('marketCap'):
+                    continue
+
+                peer_financials = df_metricas_anuais[df_metricas_anuais['Ticker'] == peer_ticker].sort_values(by="Ano", ascending=False)
+                if peer_financials.empty: continue
+
+                latest_financials = peer_financials.iloc[0]
+                market_cap = peer_market_data.get('marketCap', 0)
+                lucro_liquido = latest_financials.get('Lucro_Liquido', 0)
+                patrimonio_liquido = latest_financials.get('Patrimonio_Liquido', 0)
+                ebit = latest_financials.get('EBIT', 0)
+                divida_total = peer_market_data.get('totalDebt', 0)
+                caixa = peer_market_data.get('totalCash', 0)
+                
+                p_l = (market_cap / lucro_liquido) if lucro_liquido > 0 else 0
+                p_vp = (market_cap / patrimonio_liquido) if patrimonio_liquido > 0 else 0
+                enterprise_value = market_cap + divida_total - caixa
+                ev_ebit = (enterprise_value / ebit) if ebit > 0 else 0
+                
+                comparables_data.append({'Empresa': peer['Nome_Empresa'], 'Ticker': peer_ticker, 'P/L': p_l, 'P/VP': p_vp, 'EV/EBIT': ev_ebit})
+
+        if comparables_data:
+            df_comparables = pd.DataFrame(comparables_data).round(2)
+            st.markdown("##### Tabela de Múltiplos do Setor")
+            st.dataframe(df_comparables.set_index('Ticker'), use_container_width=True)
+            
+            st.markdown("##### Gráficos Comparativos de Valuation")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                df_pl = df_comparables[(df_comparables['P/L'] > 0) & (df_comparables['P/L'] < 100)]
+                fig_pl = px.bar(df_pl.sort_values('P/L'), x='Ticker', y='P/L', title='Comparativo de P/L', color='Empresa')
+                st.plotly_chart(fig_pl, use_container_width=True)
+            with col2:
+                df_pvp = df_comparables[(df_comparables['P/VP'] > 0) & (df_comparables['P/VP'] < 20)]
+                fig_pvp = px.bar(df_pvp.sort_values('P/VP'), x='Ticker', y='P/VP', title='Comparativo de P/VP', color='Empresa')
+                st.plotly_chart(fig_pvp, use_container_width=True)
+            with col3:
+                df_evebit = df_comparables[(df_comparables['EV/EBIT'] > 0) & (df_comparables['EV/EBIT'] < 50)]
+                fig_evebit = px.bar(df_evebit.sort_values('EV/EBIT'), x='Ticker', y='EV/EBIT', title='Comparativo de EV/EBIT', color='Empresa')
+                st.plotly_chart(fig_evebit, use_container_width=True)
+        else:
+            st.warning("Não foi possível encontrar dados para os comparáveis do setor.")
 
     # --- ABA 5: VALUATION HISTÓRICO ---
     with tab5:
         st.subheader(f"Histórico de P/L (Preço/Lucro) dos Últimos 5 Anos")
-        # ... (código da aba de valuation histórico que já funcionava) ...
-        pass
+        with st.spinner("Calculando histórico de valuation..."):
+            if not price_history.empty and not metricas_trimestrais_empresa.empty and market_data:
+                try:
+                    df_lucro = metricas_trimestrais_empresa[['Data_Reporte', 'Lucro_Liquido']].copy()
+                    df_lucro['Data_Reporte'] = pd.to_datetime(df_lucro['Data_Reporte'])
+                    df_lucro = df_lucro.sort_values(by='Data_Reporte')
+                    
+                    df_lucro['Lucro_TTM'] = df_lucro['Lucro_Liquido'].rolling(window=4).sum()
+                    df_lucro.dropna(inplace=True)
+
+                    df_preco = price_history[['Close']].copy()
+                    df_preco.index = df_preco.index.tz_localize(None) # Remove timezone
+                    
+                    shares_outstanding = market_data.get('sharesOutstanding', 0)
+                    if shares_outstanding > 0:
+                        df_preco['MarketCap_Hist'] = df_preco['Close'] * shares_outstanding
+                        
+                        df_pl = pd.merge_asof(df_preco.sort_index(), df_lucro, left_index=True, right_on='Data_Reporte', direction='backward')
+                        df_pl['PL_Historico'] = (df_pl['MarketCap_Hist'] / df_pl['Lucro_TTM']).where(df_pl['Lucro_TTM'] > 0)
+                        
+                        pl_medio = df_pl['PL_Historico'].mean()
+                        pl_atual = df_pl['PL_Historico'].iloc[-1]
+                        
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("P/L Atual", f"{pl_atual:.2f}x")
+                        col2.metric("Média de 5 Anos", f"{pl_medio:.2f}x")
+                        delta_media = ((pl_atual - pl_medio) / pl_medio) if pl_medio != 0 else 0
+                        col3.metric("Posição vs. Média", f"{delta_media:.1%}")
+
+                        fig_pl_hist = px.line(df_pl, x='Data_Reporte', y='PL_Historico', title=f'P/L Histórico de {ticker_selecionado}')
+                        fig_pl_hist.add_hline(y=pl_medio, line_dash="dot", line_color="green", annotation_text=f"Média: {pl_medio:.2f}x")
+                        st.plotly_chart(fig_pl_hist, use_container_width=True)
+                    else:
+                        st.warning("Número de ações não disponível (sharesOutstanding). Não é possível calcular P/L histórico.")
+                except Exception as e:
+                    st.error(f"Ocorreu um erro ao gerar a análise histórica: {e}")
+            else:
+                st.warning("Não há dados trimestrais ou de preço suficientes para gerar a análise de valuation histórico.")
 
 else:
     st.info("Selecione uma empresa na barra lateral para começar a análise.")
-
-
