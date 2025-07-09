@@ -120,16 +120,20 @@ if ticker_selecionado:
         col3.metric("Margem EBIT", f"{margem_ebit:.2%}")
 
     # --- ABA 3: ANÁLISE DE DÍVIDA ---
+    # --- ABA 3: ANÁLISE DE DÍVIDA (IMPLEMENTAÇÃO CORRIGIDA E ROBUSTA) ---
     with tab3:
         st.subheader("Perfil da Dívida e Métricas de Crédito")
 
-        # 1. Calcular métricas de alavancagem
-        ebit = ultimo_ano_df['EBIT']
-        ativos_totais = ultimo_ano_df['Ativos_Totais']
-        passivos_totais = ultimo_ano_df['Passivos_Totais']
-        divida_total = passivos_totais # Simplificação, idealmente seria Dívida de Curto e Longo Prazo
+        # 1. Calcular métricas de alavancagem de forma segura
+        # Usamos .get(coluna, 0) para evitar KeyError se a coluna não existir
+        ebit = ultimo_ano_df.get('EBIT', 0)
+        ativos_totais = ultimo_ano_df.get('Ativos_Totais', 0)
+        passivos_totais = ultimo_ano_df.get('Passivos_Totais', 0)
         
-        alavancagem_financeira = divida_total / ativos_totais if ativos_totais > 0 else 0
+        # Simplificação, idealmente seria Dívida de Curto e Longo Prazo
+        divida_total = passivos_totais 
+        
+        alavancagem_financeira = (divida_total / ativos_totais) if ativos_totais > 0 else 0
         
         col1, col2 = st.columns(2)
         col1.metric("Alavancagem Financeira (Dívida/Ativos)", f"{alavancagem_financeira:.2f}x")
@@ -168,5 +172,3 @@ if ticker_selecionado:
                     col_bond4.metric("Yield to Maturity (YTM)", f"{ytm:.3%}", help="Retorno anualizado esperado se o título for mantido até o vencimento.")
         else:
             st.info("Nenhum título de dívida cadastrado para esta empresa.")
-else:
-    st.info("Selecione uma empresa na barra lateral para começar a análise.")
