@@ -112,7 +112,7 @@ if ticker_selecionado:
             st.warning("Não há dados financeiros para analisar a dívida.")
             
     # --- ABA 4: COMPARÁVEIS DE MERCADO ---
-   with tab4:
+    with tab4:
         st.subheader(f"Análise de Comparáveis do Setor: {info_empresa['Setor_Manual']}")
         
         # 1. Encontrar os pares (peers)
