@@ -59,15 +59,40 @@ def extrair_dados_yfinance(tickers):
 
 def transformar_metricas(df_metricas, eh_anual=True):
     """Padroniza e limpa um DataFrame de métricas (anual ou trimestral)."""
+    # Encontre este dicionário no seu script e substitua-o por esta versão final
     mapeamento_colunas = {
-        'Total Revenue': 'Receita_Liquida', 'Ebit': 'EBIT', 'Operating Income': 'EBIT', 'Net Income': 'Lucro_Liquido',
-        'Interest Expense': 'Despesa_Juros', 'Interest Expense Non Operating': 'Despesa_Juros', 'Total Assets': 'Ativos_Totais',
-        'Total Liab': 'Passivos_Totais', 'Total Liabilities': 'Passivos_Totais', 'Total Stockholder Equity': 'Patrimonio_Liquido',
-        'Stockholders Equity': 'Patrimonio_Liquido', 'Shareholders Equity': 'Patrimonio_Liquido', 'Total Current Assets': 'Ativos_Circulantes',
-        'Total Current Liabilities': 'Passivos_Circulantes', 'Long Term Debt': 'Divida_Longo_Prazo', 'Total Cash': 'Caixa',
-        'Cash': 'Caixa', 'Cash And Cash Equivalents': 'Caixa', 'Working Capital': 'Capital_de_Giro', 'Operating Cash Flow': 'FCO',
-        'Total Cash From Operating Activities': 'FCO', 'Investing Cash Flow': 'FCI', 'Total Cashflows From Investing Activities': 'FCI',
-        'Financing Cash Flow': 'FCF', 'Total Cash From Financing Activities': 'FCF', 'Capital Expenditures': 'CAPEX'
+        # DRE
+        'Total Revenue': 'Receita_Liquida',
+        'Ebit': 'EBIT',
+        'Operating Income': 'EBIT',
+        'Net Income': 'Lucro_Liquido',
+        'Interest Expense': 'Despesa_Juros',
+        'Interest Expense Non Operating': 'Despesa_Juros',
+    
+        # Balanço Patrimonial
+        'Total Assets': 'Ativos_Totais',
+        'Total Liab': 'Passivos_Totais',
+        'Total Liabilities': 'Passivos_Totais',
+        'Total Stockholder Equity': 'Patrimonio_Liquido',
+        'Stockholders Equity': 'Patrimonio_Liquido',
+        'Shareholders Equity': 'Patrimonio_Liquido',
+        'Total Current Assets': 'Ativos_Circulantes',
+        'Total Current Liabilities': 'Passivos_Circulantes',
+        'Long Term Debt': 'Divida_Longo_Prazo',
+        'Total Cash': 'Caixa',
+        'Cash': 'Caixa',
+        'Cash And Cash Equivalents': 'Caixa',
+        'Working Capital': 'Capital_de_Giro',
+    
+        # Fluxo de Caixa
+        'Operating Cash Flow': 'FCO',
+        'Total Cash From Operating Activities': 'FCO',
+        'Investing Cash Flow': 'FCI',
+        'Total Cashflows From Investing Activities': 'FCI',
+        'Financing Cash Flow': 'FCF',
+        'Total Cash From Financing Activities': 'FCF',
+        'Capital Expenditures': 'CAPEX',
+        'Change In Fixed Assets And Intangibles': 'CAPEX' #<-- ADIÇÃO CHAVE
     }
     df_renomeado = df_metricas.rename(columns=mapeamento_colunas).loc[:,~df_metricas.rename(columns=mapeamento_colunas).columns.duplicated()]
     df_renomeado['Data_Reporte'] = pd.to_datetime(df_renomeado['Data_Reporte']).dt.strftime('%Y-%m-%d')
