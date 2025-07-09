@@ -100,17 +100,25 @@ if ticker_selecionado:
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Resumo", "📈 Análise Financeira", "债券 Análise de Dívida", "👥 Comparáveis de Mercado"])
 
     # --- ABA 1: RESUMO ---
+    # --- ABA 1: RESUMO ---
     with tab1:
         st.subheader("Descrição da Companhia")
         if perfil_empresa is not None:
             st.write(perfil_empresa.get('Descricao_Longa', 'Descrição não disponível.'))
-            st.write(f"**Website:** [{perfil_empresa.get('Website')}]({perfil_empresa.get('Website')})")
-        
+            st.write(f"**Website:** [{perfil_empresa.get('Website', '#')}]({perfil_empresa.get('Website', '#')})")
+        else:
+            st.warning("Perfil da empresa não encontrado na base de dados.")
+
         st.subheader("Histórico de Preços (Último Ano)")
         price_history = get_price_history(ticker_selecionado)
+        
+        # Lógica de verificação aprimorada
         if not price_history.empty:
-            fig_preco = px.line(price_history, x=price_history.index, y="Close", title="Preço de Fechamento")
+            fig_preco = px.line(price_history, x=price_history.index, y="Close", title=f"Preço de Fechamento - {ticker_selecionado}")
             st.plotly_chart(fig_preco, use_container_width=True)
+        else:
+            # Mensagem de aviso que aparecerá se o gráfico não puder ser gerado
+            st.warning(f"Não foi possível carregar o histórico de preços para o ticker {ticker_selecionado}. Isso pode ser um problema temporário com a fonte de dados (yfinance) ou o ticker pode não ter dados de preço disponíveis.")
 
     # --- ABA 2: ANÁLISE FINANCEIRA ---
     with tab2:
