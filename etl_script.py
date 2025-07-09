@@ -24,11 +24,15 @@ def autenticar_gspread():
     print("Autenticação bem-sucedida.")
     return gc
 
+#
+# Encontre a função extrair_dados_yfinance no seu script e substitua-a por esta:
+#
+
 def extrair_dados_yfinance(tickers):
     """Extrai dados de perfil e financeiros do yfinance para uma lista de tickers."""
     print(f"Iniciando extração de dados do yfinance para {len(tickers)} tickers...")
     dados_perfis = []
-    dados_metricas = []
+    lista_de_metricas_dfs = [] # Usando um novo nome para clareza
     
     for ticker_str in tickers:
         try:
@@ -47,25 +51,35 @@ def extrair_dados_yfinance(tickers):
             })
 
             # --- Extração de Métricas Anuais ---
-            financials = stock.financials.transpose().reset_index()
-            balance_sheet = stock.balance_sheet.transpose().reset_index()
-            cash_flow = stock.cashflow.transpose().reset_index()
-            
-            financials.rename(columns={'index': 'Ano'}, inplace=True)
+            financials = stock.financials.transpose().reset_index().rename(columns={'index': 'Ano'})
+            balance_sheet = stock.balance_sheet.transpose().reset_index().rename(columns={'index': 'Ano'})
+            cash_flow = stock.cashflow.transpose().reset_index().rename(columns={'index': 'Ano'})
+
+            # Converte a coluna 'Ano' para apenas o ano em todos os DFs
             financials['Ano'] = pd.to_datetime(financials['Ano']).dt.year
+            balance_sheet['Ano'] = pd.to_datetime(balance_sheet['Ano']).dt.year
+            cash_flow['Ano'] = pd.to_datetime(cash_flow['Ano']).dt.year
             
-            # Combina DRE, Balanço e Fluxo de Caixa
-            metricas = pd.merge(financials, balance_sheet, on='index', how='left')
-            metricas = pd.merge(metricas, cash_flow, on='index', how='left')
+            # Combina DRE, Balanço e Fluxo de Caixa usando a coluna 'Ano'
+            metricas = pd.merge(financials, balance_sheet, on='Ano', how='left')
+            metricas = pd.merge(metricas, cash_flow, on='Ano', how='left')
             metricas['Ticker'] = ticker_str
-            dados_metricas.append(metricas)
+            lista_de_metricas_dfs.append(metricas)
             
         except Exception as e:
             print(f"  ERRO ao processar {ticker_str}: {e}")
             continue
             
     print("Extração de dados do yfinance concluída.")
-    return dados_perfis, pd.concat(dados_metricas, ignore_index=True)
+    
+    if not lista_de_metricas_dfs:
+        print("Nenhum dado de métrica foi coletado com sucesso. Retornando DataFrames vazios.")
+        return pd.DataFrame(dados_perfis), pd.DataFrame()
+
+    # Concatena todos os DataFrames de métricas em um só
+    df_metricas_completo = pd.concat(lista_de_metricas_dfs, ignore_index=True)
+    
+    return pd.DataFrame(dados_perfis), df_metricas_completo
 
 def transformar_dados(df_perfis, df_metricas):
     """Padroniza e limpa os DataFrames extraídos."""
