@@ -148,8 +148,8 @@ if ticker_selecionado:
             # 2. Gráfico de Perfil de Vencimento da Dívida
             st.markdown("##### Cronograma de Vencimento da Dívida")
             # O ID da empresa na df_bonds é numérico, precisamos converter o da info_empresa
-            id_empresa_num = pd.to_numeric(info_empresa['ID_Empresa'], errors='coerce')
-            bonds_da_empresa = df_bonds[df_bonds['ID_Empresa'] == id_empresa_num].copy()
+            id_empresa_num = pd.to_numeric(info_empresa['Ticker'], errors='coerce')
+            bonds_da_empresa = df_bonds[df_bonds['Ticker'] == id_empresa_num].copy()
 
             if not bonds_da_empresa.empty:
                 bonds_da_empresa['Ano_Vencimento'] = pd.to_datetime(bonds_da_empresa['Vencimento'], dayfirst=True, errors='coerce').dt.year
