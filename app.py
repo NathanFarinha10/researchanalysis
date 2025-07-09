@@ -120,7 +120,7 @@ if ticker_selecionado:
         col3.metric("Margem EBIT", f"{margem_ebit:.2%}")
 
     # --- ABA 3: ANÁLISE DE DÍVIDA ---
-   with tab3:
+    with tab3:
         st.subheader("Perfil da Dívida e Métricas de Crédito")
 
         # 1. Calcular métricas de alavancagem
