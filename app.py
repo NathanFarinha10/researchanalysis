@@ -29,6 +29,25 @@ def get_market_data(ticker):
     except Exception:
         return None
 
+def calcular_ytm(preco_atual, valor_face, cupom_anual, anos_vencimento, pagamentos_anuais=1):
+    if anos_vencimento <= 0: return 0.0
+    taxa_cupom_periodo = cupom_anual / pagamentos_anuais
+    num_periodos = anos_vencimento * pagamentos_anuais
+    ytm_estimado = cupom_anual
+    for _ in range(100):
+        preco_estimado = 0
+        ytm_periodo = ytm_estimado / pagamentos_anuais
+        if ytm_periodo <= -1: return -1.0 # Evita divisão por zero ou valor negativo
+        for i in range(1, int(num_periodos) + 1):
+            preco_estimado += (taxa_cupom_periodo * valor_face) / ((1 + ytm_periodo) ** i)
+        preco_estimado += valor_face / ((1 + ytm_periodo) ** num_periodos)
+        if abs(preco_estimado - preco_atual) < 0.0001: return ytm_estimado
+        if preco_estimado > preco_atual:
+            ytm_estimado += 0.0001
+        else:
+            ytm_estimado -= 0.0001
+    return ytm_estimado
+
 # Carrega todos os dados
 df_empresas = carregar_dados(URL_EMPRESAS)
 df_demonstrativos = carregar_dados(URL_DEMONSTRATIVOS)
@@ -101,10 +120,53 @@ if ticker_selecionado:
         col3.metric("Margem EBIT", f"{margem_ebit:.2%}")
 
     # --- ABA 3: ANÁLISE DE DÍVIDA ---
-    with tab3:
-        st.subheader("Estrutura de Capital e Títulos de Dívida")
-        # A lógica de Alavancagem e YTM que já construímos pode ser inserida aqui
-        st.info("Seção de análise de dívida em desenvolvimento.")
+   with tab3:
+        st.subheader("Perfil da Dívida e Métricas de Crédito")
 
+        # 1. Calcular métricas de alavancagem
+        ebit = ultimo_ano_df['EBIT']
+        ativos_totais = ultimo_ano_df['Ativos_Totais']
+        passivos_totais = ultimo_ano_df['Passivos_Totais']
+        divida_total = passivos_totais # Simplificação, idealmente seria Dívida de Curto e Longo Prazo
+        
+        alavancagem_financeira = divida_total / ativos_totais if ativos_totais > 0 else 0
+        
+        col1, col2 = st.columns(2)
+        col1.metric("Alavancagem Financeira (Dívida/Ativos)", f"{alavancagem_financeira:.2f}x")
+        # Futuramente adicionar cobertura de juros aqui
+
+        # 2. Gráfico de Perfil de Vencimento da Dívida
+        st.markdown("##### Cronograma de Vencimento da Dívida")
+        bonds_da_empresa = df_bonds[df_bonds['ID_Empresa'] == info_empresa['ID_Empresa']].copy()
+
+        if not bonds_da_empresa.empty:
+            bonds_da_empresa['Ano_Vencimento'] = pd.to_datetime(bonds_da_empresa['Vencimento'], dayfirst=True).dt.year
+            perfil_divida = bonds_da_empresa.groupby('Ano_Vencimento')['Valor_Emissao_MM'].sum().reset_index()
+            
+            fig_divida = px.bar(perfil_divida, x='Ano_Vencimento', y='Valor_Emissao_MM', 
+                                title='Valor da Dívida a Vencer por Ano (em Milhões)',
+                                labels={'Ano_Vencimento': 'Ano de Vencimento', 'Valor_Emissao_MM': 'Valor a Vencer (MM)'})
+            st.plotly_chart(fig_divida, use_container_width=True)
+
+            # 3. Análise Detalhada por Título
+            st.markdown("##### Análise Detalhada por Título")
+            for index, bond in bonds_da_empresa.iterrows():
+                with st.expander(f"**{bond['Nome_Bond']}** - Vencimento: {bond['Vencimento']}"):
+                    data_vencimento = datetime.strptime(bond['Vencimento'], '%d/%m/%Y')
+                    anos_vencimento = (data_vencimento - datetime.now()).days / 365.25
+
+                    ytm = calcular_ytm(
+                        preco_atual=bond['Preco_Atual'], valor_face=100,
+                        cupom_anual=bond['Cupom_Anual'], anos_vencimento=anos_vencimento,
+                        pagamentos_anuais=bond['Pagamentos_Anuais']
+                    )
+
+                    col_bond1, col_bond2, col_bond3, col_bond4 = st.columns(4)
+                    col_bond1.metric("Preço Atual", f"${bond['Preco_Atual']:.2f}")
+                    col_bond2.metric("Cupom", f"{bond['Cupom_Anual']:.3%}")
+                    col_bond3.metric("Rating", bond['Rating'])
+                    col_bond4.metric("Yield to Maturity (YTM)", f"{ytm:.3%}", help="Retorno anualizado esperado se o título for mantido até o vencimento.")
+        else:
+            st.info("Nenhum título de dívida cadastrado para esta empresa.")
 else:
     st.info("Selecione uma empresa na barra lateral para começar a análise.")
