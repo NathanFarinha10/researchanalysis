@@ -6,14 +6,16 @@ from datetime import datetime
 import gspread
 
 # =================================================================================
-# CONFIGURAÇÃO E CONEXÃO DE DADOS (VERSÃO FINAL)
+# CONFIGURAÇÃO E DEFINIÇÃO DE FUNÇÕES
 # =================================================================================
 st.set_page_config(page_title="Plataforma de Análise", layout="wide")
 st.title("Plataforma Integrada de Análise de Ativos")
 
 NOME_PLANILHA = "Plataforma_DB_Final"
 
-@st.cache_data(ttl=3600) # Cache de 1 hora
+# --- FUNÇÕES DE CARREGAMENTO E PROCESSAMENTO DE DADOS ---
+
+@st.cache_data(ttl=3600)
 def carregar_dados_gsheets(worksheet_name):
     """Função para carregar dados de uma aba específica usando gspread."""
     try:
@@ -26,20 +28,46 @@ def carregar_dados_gsheets(worksheet_name):
         st.error(f"Erro ao carregar a aba '{worksheet_name}': {e}")
         return pd.DataFrame()
 
-# Carrega todos os dados das abas corretas
-df_empresas_master = carregar_dados_gsheets("empresas_master")
-df_perfis = carregar_dados_gsheets("perfis_empresas")
-df_metricas_anuais = carregar_dados_gsheets("metricas_anuais")
-df_bonds = carregar_dados_gsheets("dados_bonds")
+@st.cache_data(ttl=3600)
+def get_market_data(ticker):
+    """Busca dados de mercado do yfinance."""
+    try:
+        return yf.Ticker(ticker).info
+    except Exception:
+        return None
 
 @st.cache_data(ttl=3600)
 def get_price_history(ticker):
     """Busca histórico de preços do yfinance."""
     try:
-        stock = yf.Ticker(ticker)
-        return stock.history(period="1y")
+        return yf.Ticker(ticker).history(period="1y")
     except Exception:
         return pd.DataFrame()
+
+def calcular_ytm(preco_atual, valor_face, cupom_anual, anos_vencimento, pagamentos_anuais=1):
+    if anos_vencimento <= 0: return 0.0
+    taxa_cupom_periodo = cupom_anual / pagamentos_anuais
+    num_periodos = anos_vencimento * pagamentos_anuais
+    ytm_estimado = cupom_anual
+    for _ in range(100):
+        preco_estimado = 0
+        ytm_periodo = ytm_estimado / pagamentos_anuais
+        if ytm_periodo <= -1: return -1.0
+        for i in range(1, int(num_periodos) + 1):
+            preco_estimado += (taxa_cupom_periodo * valor_face) / ((1 + ytm_periodo) ** i)
+        preco_estimado += valor_face / ((1 + ytm_periodo) ** num_periodos)
+        if abs(preco_estimado - preco_atual) < 0.0001: return ytm_estimado
+        if preco_estimado > preco_atual: ytm_estimado += 0.0001
+        else: ytm_estimado -= 0.0001
+    return ytm_estimado
+
+# =================================================================================
+# CARREGAMENTO INICIAL DOS DADOS
+# =================================================================================
+df_empresas_master = carregar_dados_gsheets("empresas_master")
+df_perfis = carregar_dados_gsheets("perfis_empresas")
+df_metricas_anuais = carregar_dados_gsheets("metricas_anuais")
+df_bonds = carregar_dados_gsheets("dados_bonds")
 
 # =================================================================================
 # BARRA LATERAL
@@ -55,7 +83,7 @@ else:
     st.stop()
 
 # =================================================================================
-# LÓGICA PRINCIPAL
+# LÓGICA PRINCIPAL DA APLICAÇÃO
 # =================================================================================
 if ticker_selecionado:
     # --- FILTRAGEM DE DADOS ---
@@ -66,7 +94,6 @@ if ticker_selecionado:
     st.header(f"{info_empresa['Nome_Empresa']} ({info_empresa['Ticker']})")
     st.caption(f"Setor: {info_empresa['Setor_Manual']}")
     
-    # Pega o último ano de métricas disponíveis
     ultimo_ano_df = metricas_empresa.iloc[0] if not metricas_empresa.empty else None
 
     # --- DEFINIÇÃO DAS ABAS ---
@@ -76,8 +103,8 @@ if ticker_selecionado:
     with tab1:
         st.subheader("Descrição da Companhia")
         if perfil_empresa is not None:
-            st.write(perfil_empresa['Descricao_Longa'])
-            st.write(f"**Website:** [{perfil_empresa['Website']}]({perfil_empresa['Website']})")
+            st.write(perfil_empresa.get('Descricao_Longa', 'Descrição não disponível.'))
+            st.write(f"**Website:** [{perfil_empresa.get('Website')}]({perfil_empresa.get('Website')})")
         
         st.subheader("Histórico de Preços (Último Ano)")
         price_history = get_price_history(ticker_selecionado)
@@ -89,36 +116,30 @@ if ticker_selecionado:
     with tab2:
         if ultimo_ano_df is not None:
             st.subheader("Desempenho Financeiro Histórico")
-            fig = px.bar(metricas_empresa, x="Ano", y=["Receita_Liquida", "EBIT", "Lucro_Liquido"], barmode='group', title="Performance Anual")
-            st.plotly_chart(fig, use_container_width=True)
+            fig_performance = px.bar(metricas_empresa, x="Ano", y=["Receita_Liquida", "EBIT", "Lucro_Liquido"], barmode='group', title="Performance Anual")
+            st.plotly_chart(fig_performance, use_container_width=True)
 
-            st.subheader("Ratios de Rentabilidade e Eficiência (Último Ano)")
-            roe = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Patrimonio_Liquido']) if ultimo_ano_df['Patrimonio_Liquido'] > 0 else 0
-            margem_liquida = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Receita_Liquida']) if ultimo_ano_df['Receita_Liquida'] > 0 else 0
+            st.subheader("Ratios de Rentabilidade (Último Ano)")
+            roe = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Patrimonio_Liquido']) if ultimo_ano_df.get('Patrimonio_Liquido', 0) > 0 else 0
+            margem_liquida = (ultimo_ano_df['Lucro_Liquido'] / ultimo_ano_df['Receita_Liquida']) if ultimo_ano_df.get('Receita_Liquida', 0) > 0 else 0
             
             col1, col2 = st.columns(2)
             col1.metric("ROE (Return on Equity)", f"{roe:.2%}")
             col2.metric("Margem Líquida", f"{margem_liquida:.2%}")
         else:
             st.warning("Não há dados financeiros anuais disponíveis para esta empresa.")
-
+            
     # --- ABA 3: ANÁLISE DE DÍVIDA ---
     with tab3:
-        if ultimo_ano_df is not None:
-             st.subheader("Perfil da Dívida")
-             # A lógica completa da Aba de Dívida pode ser inserida aqui, lendo de `df_bonds`
-             st.info("Funcionalidade de análise de bonds em desenvolvimento nesta nova arquitetura.")
-        else:
-            st.warning("Não há dados financeiros para analisar a dívida.")
+        st.subheader("Análise de Dívida")
+        st.info("Funcionalidade em desenvolvimento.")
             
     # --- ABA 4: COMPARÁVEIS DE MERCADO ---
     with tab4:
         st.subheader(f"Análise de Comparáveis do Setor: {info_empresa['Setor_Manual']}")
         
-        # 1. Encontrar os pares (peers)
         peers = df_empresas_master[df_empresas_master['Setor_Manual'] == info_empresa['Setor_Manual']]
         
-        # 2. Coletar e calcular dados para os pares
         with st.spinner("Buscando dados de mercado para as empresas do setor..."):
             comparables_data = []
             for index, peer in peers.iterrows():
@@ -133,8 +154,6 @@ if ticker_selecionado:
                     continue
 
                 latest_financials = peer_financials.iloc[0]
-                
-                # Coleta de dados para os cálculos
                 market_cap = peer_market_data.get('marketCap', 0)
                 lucro_liquido = latest_financials.get('Lucro_Liquido', 0)
                 patrimonio_liquido = latest_financials.get('Patrimonio_Liquido', 0)
@@ -142,48 +161,36 @@ if ticker_selecionado:
                 divida_total = peer_market_data.get('totalDebt', 0)
                 caixa = peer_market_data.get('totalCash', 0)
                 
-                # Cálculos dos múltiplos
                 p_l = (market_cap / lucro_liquido) if lucro_liquido > 0 else 0
                 p_vp = (market_cap / patrimonio_liquido) if patrimonio_liquido > 0 else 0
-                
                 enterprise_value = market_cap + divida_total - caixa
                 ev_ebit = (enterprise_value / ebit) if ebit > 0 else 0
                 
                 comparables_data.append({
-                    'Empresa': peer['Nome_Empresa'],
-                    'Ticker': peer_ticker,
-                    'P/L': p_l,
-                    'P/VP': p_vp,
-                    'EV/EBIT': ev_ebit
+                    'Empresa': peer['Nome_Empresa'], 'Ticker': peer_ticker,
+                    'P/L': p_l, 'P/VP': p_vp, 'EV/EBIT': ev_ebit
                 })
 
         if comparables_data:
             df_comparables = pd.DataFrame(comparables_data).round(2)
-            
-            # 3. Exibir a tabela de comparáveis
             st.markdown("##### Tabela de Múltiplos do Setor")
             st.dataframe(df_comparables.set_index('Ticker'), use_container_width=True)
-
-            # 4. Exibir gráficos comparativos
             st.markdown("##### Gráficos Comparativos de Valuation")
-            
             col1, col2, col3 = st.columns(3)
-            
             with col1:
-                df_pl = df_comparables[(df_comparables['P/L'] > 0) & (df_comparables['P/L'] < 100)] # Filtra outliers
+                df_pl = df_comparables[(df_comparables['P/L'] > 0) & (df_comparables['P/L'] < 100)]
                 fig_pl = px.bar(df_pl.sort_values('P/L'), x='Ticker', y='P/L', title='Comparativo de P/L', color='Empresa')
                 st.plotly_chart(fig_pl, use_container_width=True)
-            
             with col2:
-                df_pvp = df_comparables[(df_comparables['P/VP'] > 0) & (df_comparables['P/VP'] < 20)] # Filtra outliers
+                df_pvp = df_comparables[(df_comparables['P/VP'] > 0) & (df_comparables['P/VP'] < 20)]
                 fig_pvp = px.bar(df_pvp.sort_values('P/VP'), x='Ticker', y='P/VP', title='Comparativo de P/VP', color='Empresa')
                 st.plotly_chart(fig_pvp, use_container_width=True)
-                
             with col3:
-                df_evebit = df_comparables[(df_comparables['EV/EBIT'] > 0) & (df_comparables['EV/EBIT'] < 50)] # Filtra outliers
+                df_evebit = df_comparables[(df_comparables['EV/EBIT'] > 0) & (df_comparables['EV/EBIT'] < 50)]
                 fig_evebit = px.bar(df_evebit.sort_values('EV/EBIT'), x='Ticker', y='EV/EBIT', title='Comparativo de EV/EBIT', color='Empresa')
                 st.plotly_chart(fig_evebit, use_container_width=True)
         else:
             st.warning("Não foi possível encontrar dados para os comparáveis do setor.")
+
 else:
     st.info("Selecione uma empresa na barra lateral para começar a análise.")
