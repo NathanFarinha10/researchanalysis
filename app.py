@@ -131,8 +131,57 @@ if ticker_selecionado:
             
     # --- ABA 3: ANÁLISE DE DÍVIDA ---
     with tab3:
-        st.subheader("Análise de Dívida")
-        st.info("Funcionalidade em desenvolvimento.")
+        st.subheader("Perfil da Dívida e Métricas de Crédito")
+        if ultimo_ano_df is not None:
+            # 1. Calcular métricas de alavancagem
+            ebit = ultimo_ano_df.get('EBIT', 0)
+            divida_lp = ultimo_ano_df.get('Divida_Longo_Prazo', 0)
+            caixa = ultimo_ano_df.get('Caixa', 0)
+            divida_liquida = divida_lp - caixa # Simplificação
+            
+            alavancagem = (divida_liquida / ebit) if ebit > 0 else 0
+            
+            col1, col2 = st.columns(2)
+            col1.metric("Dívida Líquida / EBIT", f"{alavancagem:.2f}x", help="Uma métrica de alavancagem. Valores mais baixos são geralmente melhores.")
+            # Futuramente adicionar cobertura de juros aqui
+
+            # 2. Gráfico de Perfil de Vencimento da Dívida
+            st.markdown("##### Cronograma de Vencimento da Dívida")
+            # O ID da empresa na df_bonds é numérico, precisamos converter o da info_empresa
+            id_empresa_num = pd.to_numeric(info_empresa['ID_Empresa'], errors='coerce')
+            bonds_da_empresa = df_bonds[df_bonds['ID_Empresa'] == id_empresa_num].copy()
+
+            if not bonds_da_empresa.empty:
+                bonds_da_empresa['Ano_Vencimento'] = pd.to_datetime(bonds_da_empresa['Vencimento'], dayfirst=True, errors='coerce').dt.year
+                perfil_divida = bonds_da_empresa.groupby('Ano_Vencimento')['Valor_Emissao_MM'].sum().reset_index()
+                
+                fig_divida = px.bar(perfil_divida, x='Ano_Vencimento', y='Valor_Emissao_MM', 
+                                    title='Valor da Dívida a Vencer por Ano (em Milhões)',
+                                    labels={'Ano_Vencimento': 'Ano de Vencimento', 'Valor_Emissao_MM': 'Valor a Vencer (MM)'})
+                st.plotly_chart(fig_divida, use_container_width=True)
+
+                # 3. Análise Detalhada por Título
+                st.markdown("##### Análise Detalhada por Título")
+                for index, bond in bonds_da_empresa.iterrows():
+                    with st.expander(f"**{bond['Nome_Bond']}** - Vencimento: {bond['Vencimento']}"):
+                        data_vencimento = datetime.strptime(bond['Vencimento'], '%d/%m/%Y')
+                        anos_vencimento = (data_vencimento - datetime.now()).days / 365.25
+
+                        ytm = calcular_ytm(
+                            preco_atual=bond['Preco_Atual'], valor_face=100,
+                            cupom_anual=bond['Cupom_Anual'], anos_vencimento=anos_vencimento,
+                            pagamentos_anuais=bond['Pagamentos_Anuais']
+                        )
+
+                        col_bond1, col_bond2, col_bond3, col_bond4 = st.columns(4)
+                        col_bond1.metric("Preço Atual", f"${bond['Preco_Atual']:.2f}")
+                        col_bond2.metric("Cupom", f"{bond['Cupom_Anual']:.3%}")
+                        col_bond3.metric("Rating", bond['Rating'])
+                        col_bond4.metric("Yield to Maturity (YTM)", f"{ytm:.3%}", help="Retorno anualizado esperado se o título for mantido até o vencimento.")
+            else:
+                st.info("Nenhum título de dívida cadastrado para esta empresa.")
+        else:
+            st.warning("Não há dados financeiros para analisar a dívida.")
             
     # --- ABA 4: COMPARÁVEIS DE MERCADO ---
     with tab4:
