@@ -295,8 +295,8 @@ if ticker_selecionado:
         else:
             st.warning("Não foi possível encontrar dados para os comparáveis do setor.")
 
-else:
-    st.info("Selecione uma empresa na barra lateral para começar a análise.")
+    else:
+        st.info("Selecione uma empresa na barra lateral para começar a análise.")
 
 
     with tab5:
@@ -357,8 +357,8 @@ else:
                 except Exception as e:
                     st.error(f"Ocorreu um erro ao gerar a análise histórica: {e}")
             else:
-                st.warning("Não há dados trimestrais ou de preço suficientes para gerar a análise de valuation histórico.")
-else:
-    st.info("Selecione uma empresa na barra lateral para começar a análise.")
+                st.warning("Não há dados trimestrais ou de preço suficientes para gerar a análise de valuation histórico.")           
+    else:
+        st.info("Selecione uma empresa na barra lateral para começar a análise.")
 
 
