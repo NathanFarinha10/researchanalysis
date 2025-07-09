@@ -13,9 +13,13 @@ st.title("Plataforma Integrada de Análise de Ativos")
 
 NOME_PLANILHA = "Plataforma_DB_Final"
 
+#
+# Substitua sua função carregar_dados_gsheets existente por esta versão robusta
+#
+
 @st.cache_data(ttl=3600)
 def carregar_dados_gsheets(worksheet_name):
-    """Carrega e trata os dados de uma aba específica da planilha."""
+    """Carrega e trata os dados de uma aba específica da planilha, garantindo os tipos numéricos corretos."""
     try:
         gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
         spreadsheet = gc.open(NOME_PLANILHA)
@@ -23,10 +27,17 @@ def carregar_dados_gsheets(worksheet_name):
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         
+        # Lista de colunas que devem permanecer como texto
         cols_to_ignore = ['Ticker', 'Nome_Empresa', 'Setor_Manual', 'Pais', 'Website', 'Descricao_Longa', 'Data_Reporte', 'Data_Ultima_Atualizacao', 'Nome_Bond', 'Rating', 'Vencimento']
-        cols_to_numeric = [col for col in df.columns if col not in cols_to_ignore]
-        for col in cols_to_numeric:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Para todas as outras colunas, força a conversão para numérico
+        for col in df.columns:
+            if col not in cols_to_ignore:
+                # 1. Converte a coluna para string para poder usar o .str.replace
+                # 2. Remove vírgulas (separador de milhar)
+                # 3. Converte para numérico, tratando erros (coerce)
+                # 4. Preenche quaisquer valores que não puderam ser convertidos com 0
+                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '', regex=False), errors='coerce').fillna(0)
         return df
     except Exception as e:
         st.error(f"Erro ao carregar a aba '{worksheet_name}': {e}")
