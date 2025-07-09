@@ -360,3 +360,5 @@ else:
                 st.warning("Não há dados trimestrais ou de preço suficientes para gerar a análise de valuation histórico.")
 else:
     st.info("Selecione uma empresa na barra lateral para começar a análise.")
+
+
